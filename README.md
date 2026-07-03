@@ -41,6 +41,7 @@ Supported features include:
 - functions, recursion, closures, and `return`
 - CLI commands for tokenizing, AST output, and running programs
 - direct file run with `vion main.vion`
+- short CLI flags such as `vion -v`, `vion -h`, `vion -e`, and `vion -c`
 
 ## Quick Start
 
@@ -69,7 +70,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1
 Open a new terminal, then run:
 
 ```powershell
-vion version
+vion -v
 vion main.vion
 ```
 
@@ -84,6 +85,28 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\Vion\docs\u
 ```powershell
 cmake --build build --target check
 ctest --test-dir build -C Debug --output-on-failure
+```
+
+## CLI Commands
+
+```powershell
+vion main.vion                  # Run a file
+vion run main.vion              # Run a file
+vion -r main.vion               # Run a file
+vion tokens main.vion           # Print tokens
+vion -t main.vion               # Print tokens
+vion ast main.vion              # Print AST
+vion -a main.vion               # Print AST
+vion check main.vion            # Parse-check a file
+vion -c main.vion               # Parse-check a file
+vion eval "print 1 + 2"         # Run inline source
+vion -e "print 1 + 2"           # Run inline source
+vion repl                       # Start REPL
+vion -i                         # Start REPL
+vion version                    # Show version
+vion -v                         # Show version
+vion help                       # Show help
+vion -h                         # Show help
 ```
 
 ## Documentation

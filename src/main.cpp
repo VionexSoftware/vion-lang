@@ -34,6 +34,16 @@ static bool isVionFilePath(const std::string& value) {
     return endsWith(value, ".vion");
 }
 
+static bool isOneOf(const std::string& value, const std::vector<std::string>& options) {
+    for (const std::string& option : options) {
+        if (value == option) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static std::vector<Token> tokenize(const std::string& source) {
     Lexer lexer(source);
     return lexer.scanTokens();
@@ -48,13 +58,24 @@ static Program parseProgram(const std::string& source) {
 static void printHelp() {
     std::cout << "Vion Language CLI\n";
     std::cout << "Usage:\n";
-    std::cout << "  vion help                  Show help\n";
-    std::cout << "  vion version               Show version\n";
-    std::cout << "  vion <file.vion>           Run Vion program\n";
-    std::cout << "  vion tokens <file.vion>    Print lexer tokens\n";
-    std::cout << "  vion ast <file.vion>       Print parsed AST\n";
-    std::cout << "  vion run <file.vion>       Run Vion program\n";
-    std::cout << "  vion build <file.vion>     Build command placeholder\n";
+    std::cout << "  vion <file.vion>                 Run Vion program\n";
+    std::cout << "  vion run <file.vion>             Run Vion program\n";
+    std::cout << "  vion -r, --run <file.vion>       Run Vion program\n";
+    std::cout << "  vion tokens <file.vion>          Print lexer tokens\n";
+    std::cout << "  vion -t, --tokens <file.vion>    Print lexer tokens\n";
+    std::cout << "  vion ast <file.vion>             Print parsed AST\n";
+    std::cout << "  vion -a, --ast <file.vion>       Print parsed AST\n";
+    std::cout << "  vion check <file.vion>           Parse-check a Vion program\n";
+    std::cout << "  vion -c, --check <file.vion>     Parse-check a Vion program\n";
+    std::cout << "  vion eval \"print 1 + 2\"          Run inline Vion source\n";
+    std::cout << "  vion -e, --eval \"print 1 + 2\"    Run inline Vion source\n";
+    std::cout << "  vion repl                        Start interactive prompt\n";
+    std::cout << "  vion -i, --interactive           Start interactive prompt\n";
+    std::cout << "  vion version                     Show version\n";
+    std::cout << "  vion -v, --version               Show version\n";
+    std::cout << "  vion help                        Show help\n";
+    std::cout << "  vion -h, --help                  Show help\n";
+    std::cout << "  vion build <file.vion>           Build command placeholder\n";
 }
 
 static void printTokens(const std::string& source) {
@@ -90,6 +111,43 @@ static void runProgram(const std::string& source) {
     interpreter.interpret(program);
 }
 
+static void checkProgram(const std::string& source) {
+    parseProgram(source);
+    std::cout << "OK\n";
+}
+
+static void startRepl() {
+    Interpreter interpreter;
+    std::string line;
+
+    std::cout << "Vion REPL v0.2.0\n";
+    std::cout << "Type 'exit' or press Ctrl+Z then Enter to quit.\n";
+
+    while (true) {
+        std::cout << "vion> ";
+
+        if (!std::getline(std::cin, line)) {
+            std::cout << "\n";
+            break;
+        }
+
+        if (line == "exit" || line == "quit") {
+            break;
+        }
+
+        if (line.empty()) {
+            continue;
+        }
+
+        try {
+            Program program = parseProgram(line);
+            interpreter.interpret(program);
+        } catch (const std::exception& error) {
+            std::cerr << "Error: " << error.what() << "\n";
+        }
+    }
+}
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         printHelp();
@@ -99,13 +157,29 @@ int main(int argc, char* argv[]) {
     std::string command = argv[1];
 
     try {
-        if (command == "help" || command == "--help" || command == "-h") {
+        if (isOneOf(command, {"help", "--help", "-h"})) {
             printHelp();
             return 0;
         }
 
-        if (command == "version" || command == "--version" || command == "-v") {
+        if (isOneOf(command, {"version", "--version", "-v"})) {
             std::cout << "Vion v0.2.0\n";
+            return 0;
+        }
+
+        if (isOneOf(command, {"repl", "--interactive", "-i"})) {
+            startRepl();
+            return 0;
+        }
+
+        if (isOneOf(command, {"eval", "--eval", "-e"})) {
+            if (argc < 3) {
+                std::cerr << "Error: missing inline source.\n";
+                printHelp();
+                return 1;
+            }
+
+            runProgram(argv[2]);
             return 0;
         }
 
@@ -124,22 +198,27 @@ int main(int argc, char* argv[]) {
         std::string filePath = argv[2];
         std::string source = readFile(filePath);
 
-        if (command == "tokens") {
+        if (isOneOf(command, {"tokens", "--tokens", "-t"})) {
             printTokens(source);
             return 0;
         }
 
-        if (command == "ast") {
+        if (isOneOf(command, {"ast", "--ast", "-a"})) {
             printAst(source);
             return 0;
         }
 
-        if (command == "run") {
+        if (isOneOf(command, {"run", "--run", "-r"})) {
             runProgram(source);
             return 0;
         }
 
-        if (command == "build") {
+        if (isOneOf(command, {"check", "--check", "-c"})) {
+            checkProgram(source);
+            return 0;
+        }
+
+        if (isOneOf(command, {"build", "--build", "-b"})) {
             std::cout << "Vion build is not implemented yet.\n";
             std::cout << "Current version is an interpreter. Use: vion run <file.vion>\n";
             return 0;

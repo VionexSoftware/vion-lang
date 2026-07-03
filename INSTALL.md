@@ -31,7 +31,7 @@ The online installer:
 After installation, verify:
 
 ```powershell
-vion version
+vion -v
 vion main.vion
 ```
 

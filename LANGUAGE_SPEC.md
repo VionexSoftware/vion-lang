@@ -115,3 +115,22 @@ print addTwo(5)
 - type checker
 - bytecode
 - native compilation
+
+## CLI
+
+Vion programs can be run directly:
+
+```powershell
+vion main.vion
+```
+
+Useful command aliases:
+
+- `vion -v` / `vion --version`
+- `vion -h` / `vion --help`
+- `vion -r main.vion` / `vion run main.vion`
+- `vion -t main.vion` / `vion tokens main.vion`
+- `vion -a main.vion` / `vion ast main.vion`
+- `vion -c main.vion` / `vion check main.vion`
+- `vion -e "print 1 + 2"` / `vion eval "print 1 + 2"`
+- `vion -i` / `vion repl`

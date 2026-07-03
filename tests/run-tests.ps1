@@ -53,8 +53,20 @@ function Invoke-VionProcess {
 
 $Cases = @(
     @{
+        Name = "short version"
+        Args = @("-v")
+        ExitCode = 0
+        Output = "Vion v0.2.0"
+    },
+    @{
         Name = "hello"
         Args = @("run", (Join-Path $ProjectRoot "examples\hello.vion"))
+        ExitCode = 0
+        Output = "Vion`n30`ntotal is valid"
+    },
+    @{
+        Name = "short run"
+        Args = @("-r", (Join-Path $ProjectRoot "examples\hello.vion"))
         ExitCode = 0
         Output = "Vion`n30`ntotal is valid"
     },
@@ -63,6 +75,18 @@ $Cases = @(
         Args = @((Join-Path $ProjectRoot "examples\hello.vion"))
         ExitCode = 0
         Output = "Vion`n30`ntotal is valid"
+    },
+    @{
+        Name = "short check"
+        Args = @("-c", (Join-Path $ProjectRoot "examples\hello.vion"))
+        ExitCode = 0
+        Output = "OK"
+    },
+    @{
+        Name = "inline eval"
+        Args = @("-e", "print 1 + 2")
+        ExitCode = 0
+        Output = "3"
     },
     @{
         Name = "features"
