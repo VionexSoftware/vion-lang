@@ -49,6 +49,7 @@ private:
 
     const Token& advance();
     const Token& peek() const;
+    const Token& peekNext() const;
     const Token& previous() const;
     const Token& consume(TokenType type, const std::string& message);
 

@@ -159,6 +159,23 @@ struct ArrayExpr : Expr {
     }
 };
 
+// {"key": value, ...}
+struct MapExpr : Expr {
+    std::vector<std::pair<std::string, std::unique_ptr<Expr>>> pairs;
+    explicit MapExpr(std::vector<std::pair<std::string, std::unique_ptr<Expr>>> pairs, int line = 0)
+        : pairs(std::move(pairs)) { this->line = line; }
+    std::string toString() const override {
+        std::ostringstream out;
+        out << "{";
+        for (std::size_t i = 0; i < pairs.size(); ++i) {
+            if (i > 0) out << ", ";
+            out << '"' << pairs[i].first << "\": " << pairs[i].second->toString();
+        }
+        out << "}";
+        return out.str();
+    }
+};
+
 // ── Statements ────────────────────────────────────────────────────────────────
 
 struct LetStmt : Stmt {
@@ -172,10 +189,14 @@ struct LetStmt : Stmt {
 };
 
 struct PrintStmt : Stmt {
-    std::unique_ptr<Expr> value;
-    explicit PrintStmt(std::unique_ptr<Expr> value, int line = 0) : value(std::move(value)) { this->line = line; }
+    std::vector<std::unique_ptr<Expr>> values;
+    explicit PrintStmt(std::vector<std::unique_ptr<Expr>> values, int line = 0)
+        : values(std::move(values)) { this->line = line; }
     std::string toString(int indent = 0) const override {
-        return indentText(indent) + "Print " + value->toString();
+        std::ostringstream out;
+        out << indentText(indent) << "Print";
+        for (const auto& v : values) out << " " << v->toString();
+        return out.str();
     }
 };
 

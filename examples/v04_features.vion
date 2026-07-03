@@ -1,0 +1,52 @@
+// Test v0.4 features
+
+// Range
+print range(5)
+print range(1, 6)
+print range(0, 10, 2)
+
+// String ops
+print upper("vion language")
+print lower("HELLO WORLD")
+print trim("   spaced   ")
+print split("a,b,c,d", ",")
+print join(["hello", "world"], " ")
+print contains("programming", "gram")
+print replace("hello world", "world", "vion")
+print startsWith("vion", "vi")
+print endsWith("vion.vion", ".vion")
+print indexOf("hello", "ll")
+
+// Multi-arg print
+print "sum =", 1 + 2 + 3
+print "a", "b", "c"
+
+// Maps
+let user = {"name": "Minh", "age": 25, "lang": "Vion"}
+print user["name"]
+print user["age"]
+user["age"] = 26
+print user["age"]
+print hasKey(user, "lang")
+print hasKey(user, "email")
+print keys(user)
+print values(user)
+
+// File I/O
+writeFile("test_output.txt", "Hello from Vion!\n")
+print fileExists("test_output.txt")
+let content = readFile("test_output.txt")
+print trim(content)
+appendFile("test_output.txt", "Line 2\n")
+print len(split(readFile("test_output.txt"), "\n")) - 1
+
+// Random + misc
+let r = random()
+print r > 0 and r < 1
+
+// range + for = practical pattern
+let total = 0
+for i in range(1, 101) {
+  total = total + i
+}
+print total  // 5050

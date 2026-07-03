@@ -62,8 +62,12 @@ std::unique_ptr<Stmt> Parser::letStatement() {
 
 std::unique_ptr<Stmt> Parser::printStatement() {
     int stmtLine = previous().line;
-    auto value = expression();
-    return std::make_unique<PrintStmt>(std::move(value), stmtLine);
+    std::vector<std::unique_ptr<Expr>> values;
+    values.push_back(expression());
+    while (match(TokenType::COMMA)) {
+        values.push_back(expression());
+    }
+    return std::make_unique<PrintStmt>(std::move(values), stmtLine);
 }
 
 std::unique_ptr<Stmt> Parser::ifStatement() {
@@ -338,6 +342,34 @@ std::unique_ptr<Expr> Parser::primary() {
         return expr;
     }
 
+    // Map literal: {"key": val, ...} or {}
+    if (match(TokenType::LEFT_BRACE)) {
+        int mapLine = previous().line;
+        std::vector<std::pair<std::string, std::unique_ptr<Expr>>> pairs;
+
+        if (!check(TokenType::RIGHT_BRACE)) {
+            // Must be key: value pairs
+            do {
+                std::string key;
+                if (check(TokenType::STRING)) {
+                    key = peek().lexeme;
+                    advance();
+                } else if (check(TokenType::IDENTIFIER)) {
+                    key = peek().lexeme;
+                    advance();
+                } else {
+                    errorAtCurrent("expected string or identifier as map key.");
+                }
+                consume(TokenType::COLON, "expected ':' after map key.");
+                auto val = expression();
+                pairs.emplace_back(key, std::move(val));
+            } while (match(TokenType::COMMA) && !check(TokenType::RIGHT_BRACE));
+        }
+
+        consume(TokenType::RIGHT_BRACE, "expected '}' after map entries.");
+        return std::make_unique<MapExpr>(std::move(pairs), mapLine);
+    }
+
     // Array literal: [expr, expr, ...]
     if (match(TokenType::LEFT_BRACKET)) {
         int arrLine = previous().line;
@@ -380,6 +412,11 @@ const Token& Parser::advance() {
 
 const Token& Parser::peek() const {
     return tokens[current];
+}
+
+const Token& Parser::peekNext() const {
+    if (current + 1 >= static_cast<int>(tokens.size())) return tokens.back();
+    return tokens[current + 1];
 }
 
 const Token& Parser::previous() const {

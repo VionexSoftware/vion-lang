@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <map>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -17,12 +18,18 @@ enum class ValueType {
     BOOLEAN,
     FUNCTION,
     ARRAY,
+    MAP,
     NIL
 };
 
 // Forward declaration for shared array storage
 struct VionArray {
     std::vector<struct Value> elements;
+};
+
+// Map storage
+struct VionMap {
+    std::map<std::string, struct Value> entries;
 };
 
 struct Value {
@@ -32,7 +39,8 @@ struct Value {
         std::string,
         bool,
         std::shared_ptr<VionCallable>,
-        std::shared_ptr<VionArray>
+        std::shared_ptr<VionArray>,
+        std::shared_ptr<VionMap>
     > data = false;
 
     // ── Factories ──────────────────────────────────────────────────────────
@@ -54,6 +62,12 @@ struct Value {
     }
     static Value array() {
         return array(std::make_shared<VionArray>());
+    }
+    static Value map(std::shared_ptr<VionMap> v) {
+        Value r; r.type = ValueType::MAP; r.data = std::move(v); return r;
+    }
+    static Value map() {
+        return map(std::make_shared<VionMap>());
     }
     static Value nil() { return Value{}; }
 
@@ -89,6 +103,12 @@ struct Value {
         return std::get<std::shared_ptr<VionArray>>(data);
     }
 
+    std::shared_ptr<VionMap> asMap() const {
+        if (type != ValueType::MAP)
+            throw std::runtime_error("Runtime Error: expected map.");
+        return std::get<std::shared_ptr<VionMap>>(data);
+    }
+
     // ── Truthiness ────────────────────────────────────────────────────────
 
     bool isTruthy() const {
@@ -99,6 +119,7 @@ struct Value {
             case ValueType::STRING:   return !std::get<std::string>(data).empty();
             case ValueType::FUNCTION: return true;
             case ValueType::ARRAY:    return true;
+            case ValueType::MAP:      return true;
         }
         return false;
     }
@@ -137,6 +158,19 @@ struct Value {
                 out << "]";
                 return out.str();
             }
+            case ValueType::MAP: {
+                const auto& m = std::get<std::shared_ptr<VionMap>>(data);
+                std::ostringstream out;
+                out << "{";
+                bool first = true;
+                for (const auto& [k, v] : m->entries) {
+                    if (!first) out << ", ";
+                    first = false;
+                    out << '"' << k << "\": " << v.toString();
+                }
+                out << "}";
+                return out.str();
+            }
             case ValueType::NIL:
                 return "nil";
         }
@@ -152,6 +186,7 @@ struct Value {
             case ValueType::BOOLEAN:  return "boolean";
             case ValueType::FUNCTION: return "function";
             case ValueType::ARRAY:    return "array";
+            case ValueType::MAP:      return "map";
             case ValueType::NIL:      return "nil";
         }
         return "unknown";

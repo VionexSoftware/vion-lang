@@ -1,0 +1,6 @@
+let m = {"x": 42, "name": "hello"}
+print m["x"]
+print m["name"]
+m["x"] = 99
+print m["x"]
+print keys(m)

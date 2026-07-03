@@ -1,10 +1,14 @@
 #include "interpreter/Interpreter.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <fstream>
 #include <iostream>
+#include <random>
 #include <sstream>
 #include <stdexcept>
+#include <thread>
 #include <utility>
 
 // ── Control-flow signals ──────────────────────────────────────────────────────
@@ -257,7 +261,194 @@ void Interpreter::registerBuiltins() {
             return Value::array(arr);
         }
     )));
-}
+    // range(n) / range(start,end) / range(start,end,step)
+    globals->define("range", Value::function(std::make_shared<NativeFunction>(
+        "range", -1,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            if (args.empty() || args.size() > 3)
+                throw std::runtime_error("Runtime Error: range() expects 1-3 arguments.");
+            double start = 0, end = 0, step = 1;
+            if (args.size() == 1) { end = args[0].asNumber(); }
+            else if (args.size() == 2) { start = args[0].asNumber(); end = args[1].asNumber(); }
+            else { start = args[0].asNumber(); end = args[1].asNumber(); step = args[2].asNumber(); }
+            if (std::abs(step) < 1e-12) throw std::runtime_error("Runtime Error: range() step cannot be zero.");
+            auto arr = std::make_shared<VionArray>();
+            for (double i = start; (step > 0 ? i < end : i > end); i += step)
+                arr->elements.push_back(Value::number(i));
+            return Value::array(arr);
+        }
+    )));
+    globals->define("upper", Value::function(std::make_shared<NativeFunction>("upper", 1,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            std::string s = args[0].asString();
+            std::transform(s.begin(), s.end(), s.begin(), ::toupper);
+            return Value::string(s);
+        }
+    )));
+    globals->define("lower", Value::function(std::make_shared<NativeFunction>("lower", 1,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            std::string s = args[0].asString();
+            std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+            return Value::string(s);
+        }
+    )));
+    globals->define("trim", Value::function(std::make_shared<NativeFunction>("trim", 1,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            std::string s = args[0].asString();
+            auto st = s.find_first_not_of(" \t\r\n");
+            auto en = s.find_last_not_of(" \t\r\n");
+            return Value::string(st == std::string::npos ? "" : s.substr(st, en - st + 1));
+        }
+    )));
+    globals->define("split", Value::function(std::make_shared<NativeFunction>("split", 2,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            const std::string& s = args[0].asString(), &sep = args[1].asString();
+            auto arr = std::make_shared<VionArray>();
+            if (sep.empty()) {
+                for (char c : s) arr->elements.push_back(Value::string(std::string(1, c)));
+                return Value::array(arr);
+            }
+            std::size_t pos = 0, found;
+            while ((found = s.find(sep, pos)) != std::string::npos) {
+                arr->elements.push_back(Value::string(s.substr(pos, found - pos)));
+                pos = found + sep.size();
+            }
+            arr->elements.push_back(Value::string(s.substr(pos)));
+            return Value::array(arr);
+        }
+    )));
+    globals->define("join", Value::function(std::make_shared<NativeFunction>("join", 2,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            auto arr = args[0].asArray();
+            const std::string& sep = args[1].asString();
+            std::ostringstream out;
+            for (std::size_t i = 0; i < arr->elements.size(); ++i) {
+                if (i > 0) out << sep;
+                out << arr->elements[i].toString();
+            }
+            return Value::string(out.str());
+        }
+    )));
+    globals->define("contains", Value::function(std::make_shared<NativeFunction>("contains", 2,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            if (args[0].type == ValueType::STRING)
+                return Value::boolean(args[0].asString().find(args[1].asString()) != std::string::npos);
+            if (args[0].type == ValueType::ARRAY) {
+                const std::string& t = args[1].toString();
+                for (const auto& e : args[0].asArray()->elements) if (e.toString() == t) return Value::boolean(true);
+                return Value::boolean(false);
+            }
+            throw std::runtime_error("Runtime Error: contains() expects string or array.");
+        }
+    )));
+    globals->define("replace", Value::function(std::make_shared<NativeFunction>("replace", 3,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            std::string s = args[0].asString();
+            const std::string& from = args[1].asString(), &to = args[2].asString();
+            if (!from.empty()) {
+                std::size_t pos = 0;
+                while ((pos = s.find(from, pos)) != std::string::npos) { s.replace(pos, from.size(), to); pos += to.size(); }
+            }
+            return Value::string(s);
+        }
+    )));
+    globals->define("startsWith", Value::function(std::make_shared<NativeFunction>("startsWith", 2,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            const std::string& s = args[0].asString(), &p = args[1].asString();
+            return Value::boolean(s.size() >= p.size() && s.substr(0, p.size()) == p);
+        }
+    )));
+    globals->define("endsWith", Value::function(std::make_shared<NativeFunction>("endsWith", 2,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            const std::string& s = args[0].asString(), &p = args[1].asString();
+            return Value::boolean(s.size() >= p.size() && s.substr(s.size() - p.size()) == p);
+        }
+    )));
+    globals->define("indexOf", Value::function(std::make_shared<NativeFunction>("indexOf", 2,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            if (args[0].type == ValueType::STRING) {
+                auto p = args[0].asString().find(args[1].asString());
+                return p == std::string::npos ? Value::number(-1) : Value::number((double)p);
+            }
+            if (args[0].type == ValueType::ARRAY) {
+                const std::string& t = args[1].toString();
+                const auto& el = args[0].asArray()->elements;
+                for (std::size_t i = 0; i < el.size(); ++i) if (el[i].toString() == t) return Value::number((double)i);
+                return Value::number(-1);
+            }
+            throw std::runtime_error("Runtime Error: indexOf() expects string or array.");
+        }
+    )));
+    globals->define("keys", Value::function(std::make_shared<NativeFunction>("keys", 1,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            auto arr = std::make_shared<VionArray>();
+            for (const auto& [k, v] : args[0].asMap()->entries) arr->elements.push_back(Value::string(k));
+            return Value::array(arr);
+        }
+    )));
+    globals->define("values", Value::function(std::make_shared<NativeFunction>("values", 1,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            auto arr = std::make_shared<VionArray>();
+            for (const auto& [k, v] : args[0].asMap()->entries) arr->elements.push_back(v);
+            return Value::array(arr);
+        }
+    )));
+    globals->define("hasKey", Value::function(std::make_shared<NativeFunction>("hasKey", 2,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            return Value::boolean(args[0].asMap()->entries.count(args[1].asString()) > 0);
+        }
+    )));
+    globals->define("del", Value::function(std::make_shared<NativeFunction>("del", 2,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            args[0].asMap()->entries.erase(args[1].asString());
+            return args[0];
+        }
+    )));
+    globals->define("readFile", Value::function(std::make_shared<NativeFunction>("readFile", 1,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            std::ifstream f(args[0].asString());
+            if (!f) throw std::runtime_error("Runtime Error: cannot open '" + args[0].asString() + "'.");
+            std::ostringstream buf; buf << f.rdbuf();
+            return Value::string(buf.str());
+        }
+    )));
+    globals->define("writeFile", Value::function(std::make_shared<NativeFunction>("writeFile", 2,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            std::ofstream f(args[0].asString());
+            if (!f) throw std::runtime_error("Runtime Error: cannot write '" + args[0].asString() + "'.");
+            f << args[1].asString(); return Value::boolean(true);
+        }
+    )));
+    globals->define("appendFile", Value::function(std::make_shared<NativeFunction>("appendFile", 2,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            std::ofstream f(args[0].asString(), std::ios::app);
+            if (!f) throw std::runtime_error("Runtime Error: cannot append '" + args[0].asString() + "'.");
+            f << args[1].asString(); return Value::boolean(true);
+        }
+    )));
+    globals->define("fileExists", Value::function(std::make_shared<NativeFunction>("fileExists", 1,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            return Value::boolean(std::ifstream(args[0].asString()).good());
+        }
+    )));
+    globals->define("random", Value::function(std::make_shared<NativeFunction>("random", 0,
+        [](Interpreter&, const std::vector<Value>&) -> Value {
+            static std::mt19937 rng(std::random_device{}());
+            static std::uniform_real_distribution<double> dist(0.0, 1.0);
+            return Value::number(dist(rng));
+        }
+    )));
+    globals->define("sleep", Value::function(std::make_shared<NativeFunction>("sleep", 1,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            std::this_thread::sleep_for(std::chrono::milliseconds((int)args[0].asNumber()));
+            return Value::nil();
+        }
+    )));
+    globals->define("exit", Value::function(std::make_shared<NativeFunction>("exit", 1,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            std::exit((int)args[0].asNumber());
+        }
+    )));}
 
 // ── Core interpreter ──────────────────────────────────────────────────────────
 
@@ -299,8 +490,12 @@ void Interpreter::execute(const Stmt& statement) {
     }
 
     if (const auto* printStmt = dynamic_cast<const PrintStmt*>(&statement)) {
-        Value value = evaluate(*printStmt->value);
-        std::cout << value.toString() << "\n";
+        std::string out;
+        for (std::size_t i = 0; i < printStmt->values.size(); ++i) {
+            if (i > 0) out += " ";
+            out += evaluate(*printStmt->values[i]).toString();
+        }
+        std::cout << out << "\n";
         return;
     }
 
@@ -443,9 +638,13 @@ Value Interpreter::evaluate(const Expr& expression) {
         Value idx = evaluate(*idxAssign->index);
         Value val = evaluate(*idxAssign->value);
 
+        if (obj.type == ValueType::MAP) {
+            obj.asMap()->entries[idx.toString()] = val;
+            return val;
+        }
         if (obj.type != ValueType::ARRAY)
             throw std::runtime_error(
-                "Runtime Error" + locationOf(idxAssign->line) + ": index assignment requires an array.");
+                "Runtime Error" + locationOf(idxAssign->line) + ": index assignment requires an array or map.");
 
         int i = static_cast<int>(idx.asNumber());
         auto arr = obj.asArray();
@@ -480,6 +679,13 @@ Value Interpreter::evaluate(const Expr& expression) {
             arr->elements.push_back(evaluate(*elem));
         }
         return Value::array(arr);
+    }
+    if (const auto* mapExpr = dynamic_cast<const MapExpr*>(&expression)) {
+        auto m = std::make_shared<VionMap>();
+        for (const auto& [key, valExpr] : mapExpr->pairs) {
+            m->entries[key] = evaluate(*valExpr);
+        }
+        return Value::map(m);
     }
 
     throw std::runtime_error("Runtime Error: unknown expression type.");
@@ -617,9 +823,20 @@ Value Interpreter::evaluateIndex(const IndexExpr& expression) {
         return Value::string(std::string(1, s[i]));
     }
 
+    if (obj.type == ValueType::MAP) {
+        const std::string& key = idx.toString();
+        auto m = obj.asMap();
+        auto it = m->entries.find(key);
+        if (it == m->entries.end())
+            throw std::runtime_error(
+                "Runtime Error" + locationOf(line) +
+                ": map key '" + key + "' not found.");
+        return it->second;
+    }
+
     throw std::runtime_error(
         "Runtime Error" + locationOf(line) +
-        ": index operator requires array or string, got " + obj.typeName() + ".");
+        ": index operator requires array, string, or map, got " + obj.typeName() + ".");
 }
 
 bool Interpreter::valuesEqual(const Value& left, const Value& right) const {
