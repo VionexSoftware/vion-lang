@@ -58,6 +58,8 @@ Online install without cloning:
 irm https://raw.githubusercontent.com/AlexanderPhan04/vion-lang/main/scripts/install-online-windows.ps1 | iex
 ```
 
+The online installer asks once for permission, then downloads the latest GitHub Release, installs the CLI, updates user PATH, installs VS Code support, creates `Documents\Vion\main.vion`, and opens the starter project when the `code` command is available. Users do not need to set environment variables manually.
+
 Local source install:
 
 ```powershell
@@ -69,6 +71,12 @@ Open a new terminal, then run:
 ```powershell
 vion version
 vion main.vion
+```
+
+Uninstall:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\Vion\docs\uninstall-windows.ps1"
 ```
 
 ## Test

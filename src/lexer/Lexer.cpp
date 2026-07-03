@@ -4,7 +4,16 @@
 #include <stdexcept>
 #include <unordered_map>
 
-Lexer::Lexer(std::string source) : source(std::move(source)) {}
+Lexer::Lexer(std::string source) : source(std::move(source)) {
+    if (
+        this->source.size() >= 3 &&
+        static_cast<unsigned char>(this->source[0]) == 0xEF &&
+        static_cast<unsigned char>(this->source[1]) == 0xBB &&
+        static_cast<unsigned char>(this->source[2]) == 0xBF
+    ) {
+        this->source.erase(0, 3);
+    }
+}
 
 std::vector<Token> Lexer::scanTokens() {
     while (!isAtEnd()) {

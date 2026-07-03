@@ -16,7 +16,19 @@ After a GitHub Release is published with `vion-*-Windows.zip`, users can install
 irm https://raw.githubusercontent.com/AlexanderPhan04/vion-lang/main/scripts/install-online-windows.ps1 | iex
 ```
 
-Open a new terminal after installation, then verify:
+The online installer:
+
+- asks once before changing user-level settings
+- downloads the latest GitHub Release
+- copies `vion.exe` to `%LOCALAPPDATA%\Programs\Vion\bin`
+- copies docs and examples to `%LOCALAPPDATA%\Programs\Vion`
+- installs Vion VS Code syntax and file icon support
+- creates `Documents\Vion\main.vion`
+- opens the starter project in VS Code when the `code` command is available
+- adds `%LOCALAPPDATA%\Programs\Vion\bin` to your user `PATH`
+- saves an install manifest so uninstall can remove Vion-owned changes later
+
+After installation, verify:
 
 ```powershell
 vion version
@@ -24,6 +36,22 @@ vion main.vion
 ```
 
 Run the same command again to update to the latest GitHub Release.
+
+Install without prompts:
+
+```powershell
+$installer = "$env:TEMP\install-vion.ps1"
+irm https://raw.githubusercontent.com/AlexanderPhan04/vion-lang/main/scripts/install-online-windows.ps1 -OutFile $installer
+powershell -ExecutionPolicy Bypass -File $installer -Yes
+```
+
+Install without opening VS Code:
+
+```powershell
+$installer = "$env:TEMP\install-vion.ps1"
+irm https://raw.githubusercontent.com/AlexanderPhan04/vion-lang/main/scripts/install-online-windows.ps1 -OutFile $installer
+powershell -ExecutionPolicy Bypass -File $installer -NoOpen
+```
 
 Install a specific release tag:
 
@@ -93,7 +121,20 @@ You can still run the executable directly:
 ## Uninstall
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-windows.ps1
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\Vion\docs\uninstall-windows.ps1"
+```
+
+Uninstall removes:
+
+- the Vion CLI install directory
+- the Vion user `PATH` entry
+- the Vion VS Code extension folder installed by Vion
+- the starter `main.vion` only if it still matches the original template
+
+Uninstall without prompts:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\Vion\docs\uninstall-windows.ps1" -Yes
 ```
 
 ## CMake Install

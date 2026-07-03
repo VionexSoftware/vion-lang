@@ -40,12 +40,17 @@ install(FILES
     INSTALL.md
     LANGUAGE_SPEC.md
     ROADMAP.md
+    scripts/uninstall-windows.ps1
     DESTINATION "${CMAKE_INSTALL_DOCDIR}"
 )
 
 install(DIRECTORY examples/
     DESTINATION "${CMAKE_INSTALL_DATADIR}/vion/examples"
     FILES_MATCHING PATTERN "*.vion"
+)
+
+install(DIRECTORY tools/vscode-vion/
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/vion/tools/vscode-vion"
 )
 
 set(CPACK_PACKAGE_NAME "Vion")

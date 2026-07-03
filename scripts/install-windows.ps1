@@ -90,6 +90,7 @@ Copy-Item -LiteralPath (Join-Path $ProjectRoot "README.md") -Destination $DocsDi
 Copy-Item -LiteralPath (Join-Path $ProjectRoot "INSTALL.md") -Destination $DocsDir -Force
 Copy-Item -LiteralPath (Join-Path $ProjectRoot "LANGUAGE_SPEC.md") -Destination $DocsDir -Force
 Copy-Item -LiteralPath (Join-Path $ProjectRoot "ROADMAP.md") -Destination $DocsDir -Force
+Copy-Item -LiteralPath (Join-Path $ProjectRoot "scripts\uninstall-windows.ps1") -Destination $DocsDir -Force
 Copy-Item -Path (Join-Path $ProjectRoot "examples\*.vion") -Destination $ExamplesDir -Force
 
 if (!$NoPath) {
