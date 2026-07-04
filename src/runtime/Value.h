@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <map>
+#include <unordered_map>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -27,9 +28,9 @@ struct VionArray {
     std::vector<struct Value> elements;
 };
 
-// Map storage
+// Map storage — unordered for O(1) average lookup
 struct VionMap {
-    std::map<std::string, struct Value> entries;
+    std::unordered_map<std::string, struct Value> entries;
 };
 
 struct Value {

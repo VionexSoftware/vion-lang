@@ -88,20 +88,26 @@ void Lexer::scanToken() {
             addToken(TokenType::COLON);
             break;
         case '+':
-            addToken(TokenType::PLUS);
+            addToken(match('=') ? TokenType::PLUS_EQUAL
+                   : match('+') ? TokenType::PLUS_PLUS
+                   : TokenType::PLUS);
             break;
         case '-':
-            addToken(TokenType::MINUS);
+            addToken(match('=') ? TokenType::MINUS_EQUAL
+                   : match('-') ? TokenType::MINUS_MINUS
+                   : TokenType::MINUS);
             break;
         case '*':
-            addToken(TokenType::STAR);
+            addToken(match('=') ? TokenType::STAR_EQUAL : TokenType::STAR);
             break;
         case '%':
-            addToken(TokenType::PERCENT);
+            addToken(match('=') ? TokenType::PERCENT_EQUAL : TokenType::PERCENT);
             break;
         case '/':
             if (match('/')) {
                 while (peek() != '\n' && !isAtEnd()) advance();
+            } else if (match('=')) {
+                addToken(TokenType::SLASH_EQUAL);
             } else {
                 addToken(TokenType::SLASH);
             }

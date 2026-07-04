@@ -79,8 +79,17 @@ std::unique_ptr<Stmt> Parser::ifStatement() {
 
     std::unique_ptr<BlockStmt> elseBranch = nullptr;
     if (match(TokenType::ELSE)) {
-        consume(TokenType::LEFT_BRACE, "expected '{' after else.");
-        elseBranch = blockStatement();
+        if (match(TokenType::IF)) {
+            // else if — parse nested IfStmt, wrap in a single-statement block
+            auto nested = ifStatement();
+            int nestedLine = nested->line;
+            std::vector<std::unique_ptr<Stmt>> stmts;
+            stmts.push_back(std::move(nested));
+            elseBranch = std::make_unique<BlockStmt>(std::move(stmts), nestedLine);
+        } else {
+            consume(TokenType::LEFT_BRACE, "expected '{' or 'if' after 'else'.");
+            elseBranch = blockStatement();
+        }
     }
 
     return std::make_unique<IfStmt>(std::move(condition), std::move(thenBranch), std::move(elseBranch), stmtLine);
@@ -149,6 +158,29 @@ std::unique_ptr<Expr> Parser::expression() {
 std::unique_ptr<Expr> Parser::assignment() {
     auto expr = logicalOr();
 
+    // Compound assignment: +=, -=, *=, /=, %=
+    auto tryCompound = [&](TokenType tok, const std::string& op) -> bool {
+        if (!match(tok)) return false;
+        int assignLine = previous().line;
+        auto rhs = assignment();
+        std::string varName;
+        if (const auto* ident = dynamic_cast<const IdentifierExpr*>(expr.get()))
+            varName = ident->name;
+        else
+            errorAt(previous(), "compound assignment requires a variable.");
+        // Desugar: x op= rhs  →  x = x op rhs
+        auto left  = std::make_unique<IdentifierExpr>(varName, assignLine);
+        auto binary = std::make_unique<BinaryExpr>(std::move(left), op, std::move(rhs), assignLine);
+        expr = std::make_unique<AssignmentExpr>(varName, std::move(binary), assignLine);
+        return true;
+    };
+
+    if (tryCompound(TokenType::PLUS_EQUAL,    "+")) return expr;
+    if (tryCompound(TokenType::MINUS_EQUAL,   "-")) return expr;
+    if (tryCompound(TokenType::STAR_EQUAL,    "*")) return expr;
+    if (tryCompound(TokenType::SLASH_EQUAL,   "/")) return expr;
+    if (tryCompound(TokenType::PERCENT_EQUAL, "%")) return expr;
+
     if (match(TokenType::EQUAL)) {
         const Token& equalsToken = previous();
         int assignLine = equalsToken.line;
@@ -160,14 +192,6 @@ std::unique_ptr<Expr> Parser::assignment() {
 
         // arr[i] = value
         if (const auto* indexExpr = dynamic_cast<const IndexExpr*>(expr.get())) {
-            // We need to rebuild IndexAssignExpr — but since the ptrs are moved, re-parse is not easy.
-            // Use a clone trick via cast + move.
-            // Actually, we can't "move" a const. We need a non-const ptr.
-            // Let's cast via mutable ref. The unique_ptr owns it so we can release safely.
-            auto* mutable_index = const_cast<IndexExpr*>(indexExpr);
-            (void)mutable_index;
-
-            // Rebuild from the original expr (which is IndexExpr)
             auto owned = std::unique_ptr<IndexExpr>(static_cast<IndexExpr*>(expr.release()));
             return std::make_unique<IndexAssignExpr>(
                 std::move(owned->object),
@@ -274,7 +298,23 @@ std::unique_ptr<Expr> Parser::unary() {
         return std::make_unique<UnaryExpr>(op, std::move(right), opLine);
     }
 
-    return call();
+    auto expr = call();
+
+    // Postfix ++ / -- : desugar to x = x + 1
+    if (match(TokenType::PLUS_PLUS) || match(TokenType::MINUS_MINUS)) {
+        std::string op = (previous().type == TokenType::PLUS_PLUS) ? "+" : "-";
+        int opLine = previous().line;
+        if (const auto* ident = dynamic_cast<const IdentifierExpr*>(expr.get())) {
+            std::string varName = ident->name;
+            auto left   = std::make_unique<IdentifierExpr>(varName, opLine);
+            auto one    = std::make_unique<NumberExpr>(1.0, opLine);
+            auto binary = std::make_unique<BinaryExpr>(std::move(left), op, std::move(one), opLine);
+            return std::make_unique<AssignmentExpr>(varName, std::move(binary), opLine);
+        }
+        errorAt(previous(), "'++' / '--' requires a variable.");
+    }
+
+    return expr;
 }
 
 std::unique_ptr<Expr> Parser::call() {
@@ -342,7 +382,32 @@ std::unique_ptr<Expr> Parser::primary() {
         return expr;
     }
 
-    // Map literal: {"key": val, ...} or {}
+    // fn(...) { body } as an expression value (lambda)
+    if (match(TokenType::FN)) {
+        int fnLine = previous().line;
+        // Anonymous fn may have a name or not
+        std::string fnName = "__lambda__";
+        if (check(TokenType::IDENTIFIER)) {
+            fnName = peek().lexeme;
+            advance();
+        }
+        consume(TokenType::LEFT_PAREN, "expected '(' after 'fn'.");
+        std::vector<std::string> params;
+        if (!check(TokenType::RIGHT_PAREN)) {
+            do { params.push_back(consume(TokenType::IDENTIFIER, "expected parameter name.").lexeme); }
+            while (match(TokenType::COMMA));
+        }
+        consume(TokenType::RIGHT_PAREN, "expected ')' after parameters.");
+        consume(TokenType::LEFT_BRACE, "expected '{' before fn body.");
+        auto body = blockStatement();
+        // Wrap in a FunctionStmt and return as LambdaExpr
+        // We create a fake FunctionStmt in-place via a special Expr
+        // Best approach: create a IdentifierExpr pointing to the stmt, but easiest is:
+        // store as a unique FunctionStmt and emit a ClosureExpr
+        auto fnStmt = std::make_unique<FunctionStmt>(fnName, std::move(params), std::move(body), fnLine);
+        return std::make_unique<LambdaExpr>(std::move(fnStmt), fnLine);
+    }
+
     if (match(TokenType::LEFT_BRACE)) {
         int mapLine = previous().line;
         std::vector<std::pair<std::string, std::unique_ptr<Expr>>> pairs;

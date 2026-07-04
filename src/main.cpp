@@ -152,7 +152,7 @@ static void startRepl() {
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         printHelp();
-        return 1;
+        return 0;
     }
 
     std::string command = argv[1];

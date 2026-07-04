@@ -19,6 +19,14 @@ enum class TokenType {
     SLASH,
     PERCENT,
 
+    PLUS_EQUAL,    // +=
+    MINUS_EQUAL,   // -=
+    STAR_EQUAL,    // *=
+    SLASH_EQUAL,   // /=
+    PERCENT_EQUAL, // %=
+    PLUS_PLUS,     // ++
+    MINUS_MINUS,   // --
+
     EQUAL,
     EQUAL_EQUAL,
     BANG,
@@ -75,6 +83,13 @@ inline std::string tokenTypeToString(TokenType type) {
         case TokenType::STAR:          return "STAR";
         case TokenType::SLASH:         return "SLASH";
         case TokenType::PERCENT:       return "PERCENT";
+        case TokenType::PLUS_EQUAL:    return "PLUS_EQUAL";
+        case TokenType::MINUS_EQUAL:   return "MINUS_EQUAL";
+        case TokenType::STAR_EQUAL:    return "STAR_EQUAL";
+        case TokenType::SLASH_EQUAL:   return "SLASH_EQUAL";
+        case TokenType::PERCENT_EQUAL: return "PERCENT_EQUAL";
+        case TokenType::PLUS_PLUS:     return "PLUS_PLUS";
+        case TokenType::MINUS_MINUS:   return "MINUS_MINUS";
         case TokenType::EQUAL:         return "EQUAL";
         case TokenType::EQUAL_EQUAL:   return "EQUAL_EQUAL";
         case TokenType::BANG:          return "BANG";

@@ -176,6 +176,17 @@ struct MapExpr : Expr {
     }
 };
 
+// Forward declare FunctionStmt for LambdaExpr
+struct FunctionStmt;
+
+// fn(params) { body } as an expression — captures environment at definition site
+struct LambdaExpr : Expr {
+    std::unique_ptr<FunctionStmt> decl;
+    explicit LambdaExpr(std::unique_ptr<FunctionStmt> decl, int line = 0)
+        : decl(std::move(decl)) { this->line = line; }
+    std::string toString() const override { return "<lambda>"; }
+};
+
 // ── Statements ────────────────────────────────────────────────────────────────
 
 struct LetStmt : Stmt {
@@ -202,7 +213,8 @@ struct PrintStmt : Stmt {
 
 struct ExpressionStmt : Stmt {
     std::unique_ptr<Expr> value;
-    explicit ExpressionStmt(std::unique_ptr<Expr> value, int line = 0) : value(std::move(value)) { this->line = line; }
+    explicit ExpressionStmt(std::unique_ptr<Expr> value, int line = 0)
+        : value(std::move(value)) { this->line = line; }
     std::string toString(int indent = 0) const override {
         return indentText(indent) + "Expr " + value->toString();
     }
@@ -240,11 +252,14 @@ struct ForStmt : Stmt {
     std::string variable;
     std::unique_ptr<Expr> iterable;
     std::unique_ptr<BlockStmt> body;
-    ForStmt(std::string variable, std::unique_ptr<Expr> iterable, std::unique_ptr<BlockStmt> body, int line = 0)
-        : variable(std::move(variable)), iterable(std::move(iterable)), body(std::move(body)) { this->line = line; }
+    ForStmt(std::string variable, std::unique_ptr<Expr> iterable,
+            std::unique_ptr<BlockStmt> body, int line = 0)
+        : variable(std::move(variable)), iterable(std::move(iterable)),
+          body(std::move(body)) { this->line = line; }
     std::string toString(int indent = 0) const override {
         std::ostringstream out;
-        out << indentText(indent) << "For " << variable << " in " << iterable->toString() << "\n";
+        out << indentText(indent) << "For " << variable << " in "
+            << iterable->toString() << "\n";
         out << body->toString(indent + 2);
         return out.str();
     }
@@ -273,13 +288,16 @@ struct IfStmt : Stmt {
     }
 };
 
+// FunctionStmt uses shared_ptr<BlockStmt> so VionFunction can safely
+// co-own the function body without dangling references across REPL sessions.
 struct FunctionStmt : Stmt {
     std::string name;
     std::vector<std::string> parameters;
-    std::unique_ptr<BlockStmt> body;
+    std::shared_ptr<BlockStmt> body;   // shared ownership — safe for closure capture
     FunctionStmt(std::string name, std::vector<std::string> parameters,
                  std::unique_ptr<BlockStmt> body, int line = 0)
-        : name(std::move(name)), parameters(std::move(parameters)), body(std::move(body)) { this->line = line; }
+        : name(std::move(name)), parameters(std::move(parameters)),
+          body(std::move(body)) { this->line = line; }
     std::string toString(int indent = 0) const override {
         std::ostringstream out;
         out << indentText(indent) << "Fn " << name << "(";
@@ -295,7 +313,8 @@ struct FunctionStmt : Stmt {
 
 struct ReturnStmt : Stmt {
     std::unique_ptr<Expr> value;
-    explicit ReturnStmt(std::unique_ptr<Expr> value, int line = 0) : value(std::move(value)) { this->line = line; }
+    explicit ReturnStmt(std::unique_ptr<Expr> value, int line = 0)
+        : value(std::move(value)) { this->line = line; }
     std::string toString(int indent = 0) const override {
         if (!value) return indentText(indent) + "Return";
         return indentText(indent) + "Return " + value->toString();
