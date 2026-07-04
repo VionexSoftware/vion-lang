@@ -9,6 +9,7 @@
 #include <utility>
 #include <variant>
 #include <vector>
+#include <unordered_set>
 
 #include "runtime/GC.h"
 
@@ -126,6 +127,20 @@ struct Value {
             case ValueType::FUNCTION: return true;
             case ValueType::ARRAY:    return true;
             case ValueType::MAP:      return true;
+        }
+        return false;
+    }
+
+    bool operator==(const Value& other) const {
+        if (type != other.type) return false;
+        switch (type) {
+            case ValueType::NIL: return true;
+            case ValueType::BOOLEAN: return std::get<bool>(data) == std::get<bool>(other.data);
+            case ValueType::NUMBER: return std::get<double>(data) == std::get<double>(other.data);
+            case ValueType::STRING: return std::get<std::string>(data) == std::get<std::string>(other.data);
+            case ValueType::FUNCTION: return std::get<std::shared_ptr<VionCallable>>(data) == std::get<std::shared_ptr<VionCallable>>(other.data);
+            case ValueType::ARRAY: return std::get<std::shared_ptr<VionArray>>(data) == std::get<std::shared_ptr<VionArray>>(other.data);
+            case ValueType::MAP: return std::get<std::shared_ptr<VionMap>>(data) == std::get<std::shared_ptr<VionMap>>(other.data);
         }
         return false;
     }

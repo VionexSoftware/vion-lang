@@ -107,11 +107,20 @@ static void printAst(const std::string& source) {
     std::cout << program.toString();
 }
 
+#include "vm/VM.h"
+#include "compiler/Compiler.h"
+
 static void runProgram(const std::string& source, const std::string& dir = "") {
     Program program = parseProgram(source);
-    Interpreter interpreter;
-    if (!dir.empty()) interpreter.setCurrentDir(dir);
-    interpreter.interpret(program);
+    
+    Chunk chunk;
+    Compiler compiler;
+    if (compiler.compile(program, &chunk)) {
+        VM vm;
+        vm.interpret(&chunk);
+    } else {
+        std::cerr << "Compile Error\n";
+    }
 }
 
 static void checkProgram(const std::string& source) {
