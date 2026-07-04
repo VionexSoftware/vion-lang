@@ -1,0 +1,108 @@
+// Test toàn bộ features mới của Vion
+
+// ── Enum ──────────────────────────────────────────────────────────
+enum Color { Red, Green, Blue }
+print Color["Red"]    // 0
+print Color["Blue"]   // 2
+
+enum Status { Active, Inactive, Pending }
+print Status["Pending"]  // 2
+
+// ── Bitwise operators ─────────────────────────────────────────────
+print (5 & 3)   // 1
+print (5 | 3)   // 7
+print (5 ^ 3)   // 6
+print (~5)      // -6
+print (1 << 3)  // 8
+print (16 >> 2) // 4
+
+// Bitwise compound
+let flags = 0
+flags |= 1
+flags |= 4
+print flags     // 5
+flags &= ~4
+print flags     // 1
+
+// ── Class basic ──────────────────────────────────────────────────
+class Animal {
+    fn init(name, sound) {
+        self.name = name
+        self.sound = sound
+    }
+    fn speak() {
+        print self.name + " says " + self.sound
+    }
+    fn to_string() {
+        return "Animal(" + self.name + ")"
+    }
+}
+
+let dog = Animal("Rex", "Woof")
+dog.speak()                    // Rex says Woof
+print dog.name                 // Rex
+print type(dog)                // Animal
+print classname(dog)           // Animal
+
+// ── Inheritance ───────────────────────────────────────────────────
+class Dog extends Animal {
+    fn init(name) {
+        self.name = name
+        self.sound = "Woof"
+        self.tricks = []
+    }
+    fn learn(trick) {
+        push(self.tricks, trick)
+    }
+    fn show_tricks() {
+        print self.name + " knows: " + join(self.tricks, ", ")
+    }
+}
+
+let buddy = Dog("Buddy")
+buddy.speak()                         // Buddy says Woof (inherited)
+buddy.learn("sit")
+buddy.learn("shake")
+buddy.show_tricks()                   // Buddy knows: sit, shake
+print isinstance(buddy, Dog)          // true
+print isinstance(buddy, Animal)       // true (via superclass)
+
+// ── Class with static ─────────────────────────────────────────────
+class Counter {
+    fn init() {
+        self.count = 0
+    }
+    fn increment() {
+        self.count += 1
+    }
+    fn get() {
+        return self.count
+    }
+}
+
+let c1 = Counter()
+let c2 = Counter()
+c1.increment()
+c1.increment()
+c2.increment()
+print c1.get()  // 2
+print c2.get()  // 1
+
+// ── Regex ──────────────────────────────────────────────────────────
+print regex_match("hello123", "^[a-z]+\\d+$")   // true
+print regex_match("hello", "^\\d+$")             // false
+print regex_search("foo bar baz", "bar")         // true
+
+let matches = regex_find("2024-07-04 and 2025-01-01", "\\d{4}-\\d{2}-\\d{2}")
+print join(matches, " | ")   // 2024-07-04 | 2025-01-01
+
+print regex_replace("foo bar foo", "foo", "baz")  // baz bar baz
+
+let parts = regex_split("one,two;three", "[,;]")
+print parts[0]  // one
+print parts[2]  // three
+
+// ── Block comments ─────────────────────────────────────────────────
+/* This is a
+   multi-line comment */
+print "all features ok"  // all features ok

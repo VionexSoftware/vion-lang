@@ -424,6 +424,50 @@ struct ImportStmt : Stmt {
         return indentText(indent) + "Import \"" + path + "\"";
     }
 };
+// super.method() / super()
+struct SuperExpr : Expr {
+    std::string method;
+    explicit SuperExpr(std::string method, int line = 0) : method(std::move(method)) { this->line = line; }
+    std::string toString() const override { return "super." + method; }
+};
+
+// self — refers to current instance inside a method
+struct SelfExpr : Expr {
+    SelfExpr(int line = 0) { this->line = line; }
+    std::string toString() const override { return "self"; }
+};
+
+// class Foo extends Bar { fn method() { } static fn sfn() { } }
+struct ClassMethod {
+    std::string name;
+    std::unique_ptr<FunctionStmt> func;
+    bool isStatic = false;
+};
+
+struct ClassStmt : Stmt {
+    std::string name;
+    std::string superclass;    // empty string = no superclass
+    std::vector<ClassMethod> methods;
+    ClassStmt(std::string name, std::string superclass,
+              std::vector<ClassMethod> methods, int line = 0)
+        : name(std::move(name)), superclass(std::move(superclass)),
+          methods(std::move(methods)) { this->line = line; }
+    std::string toString(int indent = 0) const override {
+        return indentText(indent) + "Class " + name;
+    }
+};
+
+// enum Color { Red, Green, Blue }   — compiles to a map
+struct EnumStmt : Stmt {
+    std::string name;
+    std::vector<std::string> variants;
+    EnumStmt(std::string name, std::vector<std::string> variants, int line = 0)
+        : name(std::move(name)), variants(std::move(variants)) { this->line = line; }
+    std::string toString(int indent = 0) const override {
+        return indentText(indent) + "Enum " + name;
+    }
+};
+
 // ── Program ───────────────────────────────────────────────────────────────────
 
 struct Program {

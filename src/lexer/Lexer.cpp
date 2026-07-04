@@ -82,14 +82,23 @@ void Lexer::scanToken() {
         case ',':
             addToken(TokenType::COMMA);
             break;
-        case '.':
-            addToken(TokenType::DOT);
-            break;
         case ':':
             addToken(TokenType::COLON);
             break;
         case '?':
             addToken(TokenType::QUESTION);
+            break;
+        case '&':
+            addToken(match('=') ? TokenType::AMPERSAND_EQUAL : TokenType::AMPERSAND);
+            break;
+        case '|':
+            addToken(match('=') ? TokenType::PIPE_EQUAL : TokenType::PIPE);
+            break;
+        case '^':
+            addToken(match('=') ? TokenType::CARET_EQUAL : TokenType::CARET);
+            break;
+        case '~':
+            addToken(TokenType::TILDE);
             break;
         case '+':
             addToken(match('=') ? TokenType::PLUS_EQUAL
@@ -107,6 +116,14 @@ void Lexer::scanToken() {
             break;
         case '%':
             addToken(match('=') ? TokenType::PERCENT_EQUAL : TokenType::PERCENT);
+            break;
+        case '.':
+            if (peek() == '.' && peekNext() == '.') {
+                advance(); advance(); // consume ..
+                addToken(TokenType::ELLIPSIS);
+            } else {
+                addToken(TokenType::DOT);
+            }
             break;
         case '/':
             if (match('/')) {
@@ -134,10 +151,12 @@ void Lexer::scanToken() {
             addToken(match('=') ? TokenType::BANG_EQUAL : TokenType::BANG);
             break;
         case '>':
-            addToken(match('=') ? TokenType::GREATER_EQUAL : TokenType::GREATER);
+            if (match('>')) { addToken(TokenType::RIGHT_SHIFT); }
+            else { addToken(match('=') ? TokenType::GREATER_EQUAL : TokenType::GREATER); }
             break;
         case '<':
-            addToken(match('=') ? TokenType::LESS_EQUAL : TokenType::LESS);
+            if (match('<')) { addToken(TokenType::LEFT_SHIFT); }
+            else { addToken(match('=') ? TokenType::LESS_EQUAL : TokenType::LESS); }
             break;
         case ' ':
         case '\r':
@@ -201,7 +220,14 @@ void Lexer::identifier() {
         {"try",      TokenType::TRY},
         {"catch",    TokenType::CATCH},
         {"match",    TokenType::MATCH},
-        {"import",   TokenType::IMPORT}
+        {"import",   TokenType::IMPORT},
+        {"class",    TokenType::CLASS},
+        {"extends",  TokenType::EXTENDS},
+        {"self",     TokenType::SELF},
+        {"super",    TokenType::SUPER},
+        {"new",      TokenType::NEW},
+        {"enum",     TokenType::ENUM},
+        {"static",   TokenType::STATIC},
     };
 
     auto found = keywords.find(text);

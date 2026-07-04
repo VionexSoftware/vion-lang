@@ -332,6 +332,80 @@ void Compiler::compileStatement(const Stmt& stmt) {
         endScope();
         
         patchJump(endJump);
+    } else if (const auto* classStmt = dynamic_cast<const ClassStmt*>(&stmt)) {
+        // Emit superclass (if any) first
+        if (!classStmt->superclass.empty()) {
+            int superIdx = currentChunk()->addConstant(Value::string(classStmt->superclass));
+            emitBytes(static_cast<uint8_t>(OpCode::OP_GET_GLOBAL), static_cast<uint8_t>(superIdx));
+        }
+        // OP_CLASS <name_idx>
+        int nameIdx = currentChunk()->addConstant(Value::string(classStmt->name));
+        emitBytes(static_cast<uint8_t>(OpCode::OP_CLASS), static_cast<uint8_t>(nameIdx));
+        // If there's a superclass, inherit
+        if (!classStmt->superclass.empty()) {
+            emitByte(static_cast<uint8_t>(OpCode::OP_INHERIT));
+        }
+        // Define the class as a global/local so methods can reference it
+        int classNameIdx = currentChunk()->addConstant(Value::string(classStmt->name));
+        if (scopeDepth > 0) {
+            addLocal(classStmt->name);
+        } else {
+            emitBytes(static_cast<uint8_t>(OpCode::OP_DEFINE_GLOBAL), static_cast<uint8_t>(classNameIdx));
+        }
+        // Compile methods — each method is compiled as a BytecodeFunction, then bound
+        for (const auto& method : classStmt->methods) {
+            // Get class back on stack for OP_METHOD
+            if (scopeDepth > 0) {
+                int localArg = resolveLocal(classStmt->name);
+                emitBytes(static_cast<uint8_t>(OpCode::OP_GET_LOCAL), static_cast<uint8_t>(localArg));
+            } else {
+                int gIdx = currentChunk()->addConstant(Value::string(classStmt->name));
+                emitBytes(static_cast<uint8_t>(OpCode::OP_GET_GLOBAL), static_cast<uint8_t>(gIdx));
+            }
+            // Compile the method function
+            Compiler childCompiler(this, FunctionType::TYPE_FUNCTION);
+            childCompiler.function->name = method.name;
+            bool isStatic = method.isStatic;
+            if (!isStatic) {
+                // 'self' occupies slot 0 (the callee/receiver slot in the call frame)
+                // By convention, locals[0] is reserved for the callee (function name).
+                // We rename it to "self" so resolveLocal("self") returns 0 → GET_LOCAL 0 = instance.
+                childCompiler.locals[0].name = "self";
+                childCompiler.function->arity = method.func->parameters.size();
+                childCompiler.function->requiredArity = method.func->parameters.size();
+            } else {
+                childCompiler.function->arity = method.func->parameters.size();
+                childCompiler.function->requiredArity = method.func->parameters.size();
+            }
+            childCompiler.beginScope();
+            for (const auto& param : method.func->parameters) {
+                childCompiler.addLocal(param.first);
+            }
+            for (const auto& s : method.func->body->statements) {
+                childCompiler.compileStatement(*s);
+            }
+            auto compiledFunc = childCompiler.endCompiler();
+            int funcIdx = currentChunk()->addConstant(Value::bytecodeFunction(compiledFunc));
+            emitBytes(static_cast<uint8_t>(OpCode::OP_CLOSURE), static_cast<uint8_t>(funcIdx));
+            // OP_METHOD <method_name_idx> <is_static>
+            int mNameIdx = currentChunk()->addConstant(Value::string(method.name));
+            emitBytes(static_cast<uint8_t>(OpCode::OP_METHOD), static_cast<uint8_t>(mNameIdx));
+            emitByte(isStatic ? 1 : 0);
+        }
+    } else if (const auto* enumStmt = dynamic_cast<const EnumStmt*>(&stmt)) {
+        // Compile enum as a map: {Red: 0, Green: 1, Blue: 2}
+        for (int i = 0; i < static_cast<int>(enumStmt->variants.size()); i++) {
+            int keyIdx = currentChunk()->addConstant(Value::string(enumStmt->variants[i]));
+            emitBytes(static_cast<uint8_t>(OpCode::OP_CONSTANT), static_cast<uint8_t>(keyIdx));
+            emitConstant(Value::number(i));
+        }
+        emitBytes(static_cast<uint8_t>(OpCode::OP_BUILD_MAP), static_cast<uint8_t>(enumStmt->variants.size()));
+        int nameIdx = currentChunk()->addConstant(Value::string(enumStmt->name));
+        if (scopeDepth > 0) {
+            addLocal(enumStmt->name);
+        } else {
+            emitBytes(static_cast<uint8_t>(OpCode::OP_DEFINE_GLOBAL), static_cast<uint8_t>(nameIdx));
+        }
     }
 }
 
@@ -369,6 +443,11 @@ void Compiler::compileExpression(const Expr& expr) {
             emitByte(static_cast<uint8_t>(OpCode::OP_GREATER));
             emitByte(static_cast<uint8_t>(OpCode::OP_NOT));
         }
+        else if (op == "&")  emitByte(static_cast<uint8_t>(OpCode::OP_BITWISE_AND));
+        else if (op == "|")  emitByte(static_cast<uint8_t>(OpCode::OP_BITWISE_OR));
+        else if (op == "^")  emitByte(static_cast<uint8_t>(OpCode::OP_BITWISE_XOR));
+        else if (op == "<<") emitByte(static_cast<uint8_t>(OpCode::OP_SHIFT_LEFT));
+        else if (op == ">>") emitByte(static_cast<uint8_t>(OpCode::OP_SHIFT_RIGHT));
     } else if (const auto* logicalExpr = dynamic_cast<const LogicalExpr*>(&expr)) {
         compileExpression(*logicalExpr->left);
         
@@ -391,8 +470,9 @@ void Compiler::compileExpression(const Expr& expr) {
         compileExpression(*unaryExpr->right);
         
         std::string op = unaryExpr->op;
-        if (op == "-") emitByte(static_cast<uint8_t>(OpCode::OP_NEGATE));
+        if (op == "-")      emitByte(static_cast<uint8_t>(OpCode::OP_NEGATE));
         else if (op == "!") emitByte(static_cast<uint8_t>(OpCode::OP_NOT));
+        else if (op == "~") emitByte(static_cast<uint8_t>(OpCode::OP_BITWISE_NOT));
     } else if (const auto* idExpr = dynamic_cast<const IdentifierExpr*>(&expr)) {
         int localArg = resolveLocal(idExpr->name);
         if (localArg != -1) {
@@ -540,5 +620,23 @@ void Compiler::compileExpression(const Expr& expr) {
         auto compiledFunc = childCompiler.endCompiler();
         int funcIndex = currentChunk()->addConstant(Value::bytecodeFunction(compiledFunc));
         emitBytes(static_cast<uint8_t>(OpCode::OP_CLOSURE), static_cast<uint8_t>(funcIndex));
+    } else if (dynamic_cast<const SelfExpr*>(&expr)) {
+        // 'self' is stored as a local named "self" in method scope
+        int localArg = resolveLocal("self");
+        if (localArg != -1) {
+            emitBytes(static_cast<uint8_t>(OpCode::OP_GET_LOCAL), static_cast<uint8_t>(localArg));
+        } else {
+            std::cerr << "Compile Error: 'self' used outside a class method.\n";
+        }
+    } else if (const auto* superExpr = dynamic_cast<const SuperExpr*>(&expr)) {
+        // Push self + emit OP_GET_SUPER with method name
+        int selfArg = resolveLocal("self");
+        if (selfArg == -1) {
+            std::cerr << "Compile Error: 'super' used outside a class method.\n";
+            return;
+        }
+        emitBytes(static_cast<uint8_t>(OpCode::OP_GET_LOCAL), static_cast<uint8_t>(selfArg));
+        int nameIdx = currentChunk()->addConstant(Value::string(superExpr->method));
+        emitBytes(static_cast<uint8_t>(OpCode::OP_GET_SUPER), static_cast<uint8_t>(nameIdx));
     }
 }

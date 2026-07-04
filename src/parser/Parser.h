@@ -32,6 +32,8 @@ private:
     std::unique_ptr<Stmt> constStatement();
     std::unique_ptr<Stmt> tryCatchStatement();
     std::unique_ptr<Stmt> importStatement();
+    std::unique_ptr<Stmt> classDeclaration();
+    std::unique_ptr<Stmt> enumDeclaration();
     std::unique_ptr<Stmt> expressionStatement();
     std::unique_ptr<BlockStmt> blockStatement();
 
@@ -39,6 +41,10 @@ private:
     std::unique_ptr<Expr> assignment();
     std::unique_ptr<Expr> logicalOr();
     std::unique_ptr<Expr> logicalAnd();
+    std::unique_ptr<Expr> bitwiseOr();
+    std::unique_ptr<Expr> bitwiseXor();
+    std::unique_ptr<Expr> bitwiseAnd();
+    std::unique_ptr<Expr> shiftExpr();
     std::unique_ptr<Expr> equality();
     std::unique_ptr<Expr> comparison();
     std::unique_ptr<Expr> term();

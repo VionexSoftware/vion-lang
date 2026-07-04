@@ -1,0 +1,5 @@
+let f = 5
+f &= 3
+print f
+f |= 8
+print f

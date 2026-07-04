@@ -15,7 +15,9 @@ Program Parser::parse() {
 }
 
 std::unique_ptr<Stmt> Parser::declaration() {
-    if (match(TokenType::FN)) return functionDeclaration();
+    if (match(TokenType::FN))    return functionDeclaration();
+    if (match(TokenType::CLASS)) return classDeclaration();
+    if (match(TokenType::ENUM))  return enumDeclaration();
     return statement();
 }
 
@@ -199,20 +201,42 @@ std::unique_ptr<Expr> Parser::expression() {
 std::unique_ptr<Expr> Parser::assignment() {
     auto expr = logicalOr();
 
-    // Compound assignment: +=, -=, *=, /=, %=
+    // Compound assignment: +=, -=, *=, /=, %=, &=, |=, ^=
+    // Supports both variable (x += 1) and property (self.x += 1) forms
     auto tryCompound = [&](TokenType tok, const std::string& op) -> bool {
         if (!match(tok)) return false;
         int assignLine = previous().line;
         auto rhs = assignment();
-        std::string varName;
-        if (const auto* ident = dynamic_cast<const IdentifierExpr*>(expr.get()))
-            varName = ident->name;
-        else
-            errorAt(previous(), "compound assignment requires a variable.");
-        // Desugar: x op= rhs  →  x = x op rhs
-        auto left  = std::make_unique<IdentifierExpr>(varName, assignLine);
-        auto binary = std::make_unique<BinaryExpr>(std::move(left), op, std::move(rhs), assignLine);
-        expr = std::make_unique<AssignmentExpr>(varName, std::move(binary), assignLine);
+        if (const auto* ident = dynamic_cast<const IdentifierExpr*>(expr.get())) {
+            // x op= rhs  →  x = x op rhs
+            std::string varName = ident->name;
+            auto left   = std::make_unique<IdentifierExpr>(varName, assignLine);
+            auto binary = std::make_unique<BinaryExpr>(std::move(left), op, std::move(rhs), assignLine);
+            expr = std::make_unique<AssignmentExpr>(varName, std::move(binary), assignLine);
+        } else if (const auto* getExpr = dynamic_cast<const GetExpr*>(expr.get())) {
+            // obj.prop op= rhs  →  obj.prop = obj.prop op rhs
+            // We need to clone the object expression — use a temp variable approach
+            // Since we can't easily clone, desugar with two GetExpr nodes
+            // (relies on object having stable reference, which shared_ptr instances do)
+            std::string propName = getExpr->name;
+            // Build a fresh GetExpr for the left side of the binary op
+            // We can't truly clone, so we reconstruct based on object type
+            if (const auto* selfExpr = dynamic_cast<const SelfExpr*>(getExpr->object.get())) {
+                auto getLeft = std::make_unique<GetExpr>(std::make_unique<SelfExpr>(selfExpr->line), propName, assignLine);
+                auto binary  = std::make_unique<BinaryExpr>(std::move(getLeft), op, std::move(rhs), assignLine);
+                auto setObj  = std::make_unique<SelfExpr>(selfExpr->line);
+                expr = std::make_unique<SetExpr>(std::move(setObj), propName, std::move(binary), assignLine);
+            } else if (const auto* idObj = dynamic_cast<const IdentifierExpr*>(getExpr->object.get())) {
+                auto getLeft = std::make_unique<GetExpr>(std::make_unique<IdentifierExpr>(idObj->name, assignLine), propName, assignLine);
+                auto binary  = std::make_unique<BinaryExpr>(std::move(getLeft), op, std::move(rhs), assignLine);
+                auto setObj  = std::make_unique<IdentifierExpr>(idObj->name, assignLine);
+                expr = std::make_unique<SetExpr>(std::move(setObj), propName, std::move(binary), assignLine);
+            } else {
+                errorAt(previous(), "compound property assignment requires a simple receiver.");
+            }
+        } else {
+            errorAt(previous(), "compound assignment requires a variable or property.");
+        }
         return true;
     };
 
@@ -221,6 +245,9 @@ std::unique_ptr<Expr> Parser::assignment() {
     if (tryCompound(TokenType::STAR_EQUAL,    "*")) return expr;
     if (tryCompound(TokenType::SLASH_EQUAL,   "/")) return expr;
     if (tryCompound(TokenType::PERCENT_EQUAL, "%")) return expr;
+    if (tryCompound(TokenType::AMPERSAND_EQUAL, "&")) return expr;
+    if (tryCompound(TokenType::PIPE_EQUAL,    "|")) return expr;
+    if (tryCompound(TokenType::CARET_EQUAL,   "^")) return expr;
 
     if (match(TokenType::EQUAL)) {
         const Token& equalsToken = previous();
@@ -282,15 +309,56 @@ std::unique_ptr<Expr> Parser::logicalOr() {
 }
 
 std::unique_ptr<Expr> Parser::logicalAnd() {
-    auto expr = equality();
+    auto expr = bitwiseOr();
 
     while (match(TokenType::AND)) {
         int opLine = previous().line;
         std::string op = previous().lexeme;
-        auto right = equality();
+        auto right = bitwiseOr();
         expr = std::make_unique<LogicalExpr>(std::move(expr), op, std::move(right), opLine);
     }
 
+    return expr;
+}
+
+std::unique_ptr<Expr> Parser::bitwiseOr() {
+    auto expr = bitwiseXor();
+    while (match(TokenType::PIPE)) {
+        int opLine = previous().line;
+        auto right = bitwiseXor();
+        expr = std::make_unique<BinaryExpr>(std::move(expr), "|", std::move(right), opLine);
+    }
+    return expr;
+}
+
+std::unique_ptr<Expr> Parser::bitwiseXor() {
+    auto expr = bitwiseAnd();
+    while (match(TokenType::CARET)) {
+        int opLine = previous().line;
+        auto right = bitwiseAnd();
+        expr = std::make_unique<BinaryExpr>(std::move(expr), "^", std::move(right), opLine);
+    }
+    return expr;
+}
+
+std::unique_ptr<Expr> Parser::bitwiseAnd() {
+    auto expr = shiftExpr();
+    while (match(TokenType::AMPERSAND)) {
+        int opLine = previous().line;
+        auto right = shiftExpr();
+        expr = std::make_unique<BinaryExpr>(std::move(expr), "&", std::move(right), opLine);
+    }
+    return expr;
+}
+
+std::unique_ptr<Expr> Parser::shiftExpr() {
+    auto expr = equality();
+    while (match(TokenType::LEFT_SHIFT) || match(TokenType::RIGHT_SHIFT)) {
+        int opLine = previous().line;
+        std::string op = (previous().type == TokenType::LEFT_SHIFT) ? "<<" : ">>";
+        auto right = equality();
+        expr = std::make_unique<BinaryExpr>(std::move(expr), op, std::move(right), opLine);
+    }
     return expr;
 }
 
@@ -352,7 +420,7 @@ std::unique_ptr<Expr> Parser::factor() {
 }
 
 std::unique_ptr<Expr> Parser::unary() {
-    if (match(TokenType::BANG) || match(TokenType::MINUS)) {
+    if (match(TokenType::BANG) || match(TokenType::MINUS) || match(TokenType::TILDE)) {
         int opLine = previous().line;
         std::string op = previous().lexeme;
         auto right = unary();
@@ -434,6 +502,17 @@ std::unique_ptr<Expr> Parser::primary() {
 
     if (match(TokenType::NIL)) {
         return std::make_unique<NilExpr>(previous().line);
+    }
+
+    if (match(TokenType::SELF)) {
+        return std::make_unique<SelfExpr>(previous().line);
+    }
+
+    if (match(TokenType::SUPER)) {
+        int superLine = previous().line;
+        consume(TokenType::DOT, "expected '.' after 'super'.");
+        const Token& method = consume(TokenType::IDENTIFIER, "expected method name after 'super.'.");
+        return std::make_unique<SuperExpr>(method.lexeme, superLine);
     }
 
     if (match(TokenType::IDENTIFIER)) {
@@ -615,4 +694,66 @@ void Parser::errorAt(const Token& token, const std::string& message) const {
 
 void Parser::errorAtCurrent(const std::string& message) const {
     errorAt(peek(), message);
+}
+
+std::unique_ptr<Stmt> Parser::classDeclaration() {
+    const Token& name = consume(TokenType::IDENTIFIER, "expected class name after 'class'.");
+    int classLine = name.line;
+
+    // Optional: extends Superclass
+    std::string superName;
+    if (match(TokenType::EXTENDS)) {
+        const Token& superTok = consume(TokenType::IDENTIFIER, "expected superclass name after 'extends'.");
+        superName = superTok.lexeme;
+    }
+
+    consume(TokenType::LEFT_BRACE, "expected '{' before class body.");
+
+    std::vector<ClassMethod> methods;
+    while (!check(TokenType::RIGHT_BRACE) && !isAtEnd()) {
+        bool isStatic = match(TokenType::STATIC);
+        consume(TokenType::FN, "expected 'fn' in class body.");
+
+        const Token& methodName = consume(TokenType::IDENTIFIER, "expected method name.");
+        int fnLine = methodName.line;
+        consume(TokenType::LEFT_PAREN, "expected '(' after method name.");
+
+        std::vector<std::pair<std::string, std::shared_ptr<Expr>>> params;
+        if (!check(TokenType::RIGHT_PAREN)) {
+            do {
+                // Variadic: ...rest
+                bool variadic = match(TokenType::ELLIPSIS);
+                std::string paramName = consume(TokenType::IDENTIFIER, "expected parameter name.").lexeme;
+                if (variadic) paramName = "..." + paramName;
+                std::shared_ptr<Expr> defaultVal = nullptr;
+                if (!variadic && match(TokenType::EQUAL)) defaultVal = expression();
+                params.push_back({paramName, std::move(defaultVal)});
+                if (variadic) break;
+            } while (match(TokenType::COMMA));
+        }
+        consume(TokenType::RIGHT_PAREN, "expected ')' after parameters.");
+        consume(TokenType::LEFT_BRACE, "expected '{' before method body.");
+        auto body = blockStatement();
+
+        auto funcStmt = std::make_unique<FunctionStmt>(methodName.lexeme, std::move(params), std::move(body), fnLine);
+        methods.push_back({methodName.lexeme, std::move(funcStmt), isStatic});
+    }
+
+    consume(TokenType::RIGHT_BRACE, "expected '}' after class body.");
+    return std::make_unique<ClassStmt>(name.lexeme, superName, std::move(methods), classLine);
+}
+
+std::unique_ptr<Stmt> Parser::enumDeclaration() {
+    const Token& name = consume(TokenType::IDENTIFIER, "expected enum name after 'enum'.");
+    int enumLine = name.line;
+    consume(TokenType::LEFT_BRACE, "expected '{' after enum name.");
+
+    std::vector<std::string> variants;
+    while (!check(TokenType::RIGHT_BRACE) && !isAtEnd()) {
+        const Token& variant = consume(TokenType::IDENTIFIER, "expected variant name in enum.");
+        variants.push_back(variant.lexeme);
+        match(TokenType::COMMA); // optional comma
+    }
+    consume(TokenType::RIGHT_BRACE, "expected '}' after enum body.");
+    return std::make_unique<EnumStmt>(name.lexeme, std::move(variants), enumLine);
 }

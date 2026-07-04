@@ -37,6 +37,19 @@ enum class TokenType {
     LESS,
     LESS_EQUAL,
 
+    // Bitwise operators
+    AMPERSAND,      // &
+    PIPE,           // |
+    CARET,          // ^
+    TILDE,          // ~ (unary bitwise NOT)
+    LEFT_SHIFT,     // <<
+    RIGHT_SHIFT,    // >>
+    AMPERSAND_EQUAL, // &=
+    PIPE_EQUAL,     // |=
+    CARET_EQUAL,    // ^=
+
+    ELLIPSIS,       // ... (variadic / spread)
+
     IDENTIFIER,
     NUMBER,
     STRING,
@@ -63,6 +76,13 @@ enum class TokenType {
     CATCH,
     MATCH,
     IMPORT,
+    CLASS,         // class
+    EXTENDS,       // extends
+    SELF,          // self
+    SUPER,         // super
+    NEW,           // new
+    ENUM,          // enum
+    STATIC,        // static
     ARROW,         // ->
     QUESTION,      // ?
     INTERP_START,  // start of interpolated string

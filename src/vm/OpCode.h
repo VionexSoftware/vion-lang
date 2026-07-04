@@ -32,6 +32,14 @@ enum class OpCode : uint8_t {
     OP_NOT,
     OP_NEGATE,
 
+    // Bitwise
+    OP_BITWISE_AND,
+    OP_BITWISE_OR,
+    OP_BITWISE_XOR,
+    OP_BITWISE_NOT,
+    OP_SHIFT_LEFT,
+    OP_SHIFT_RIGHT,
+
     OP_GET_PROPERTY,
     OP_SET_PROPERTY,
     OP_INVOKE,
@@ -55,6 +63,14 @@ enum class OpCode : uint8_t {
     OP_BUILD_MAP,
     OP_INDEX_GET,
     OP_INDEX_SET,
+
+    // Class System
+    OP_CLASS,        // Create a class object, operand = name constant index
+    OP_METHOD,       // Bind method to class on stack, operand = name constant index
+    OP_INHERIT,      // Set superclass (TOS = subclass, TOS-1 = superclass)
+    OP_GET_SUPER,    // Get method from superclass, operand = name constant index
+    OP_SUPER_INVOKE, // Invoke superclass method
+    OP_SELF,         // Push 'self' (receiver) — slot 1 in method frame
 
     // Miscellaneous
     OP_PRINT

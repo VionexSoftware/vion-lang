@@ -16,6 +16,7 @@
 #include <functional>
 #include <algorithm>
 #include <cmath>
+#include <regex>
 
 #include "lexer/Lexer.h"
 #include "parser/Parser.h"
@@ -1073,7 +1074,7 @@ VM::VM() {
         catch(...) { return Value::boolean(false); }
     });
 
-    // ── range(n) / range(a,b) / range(a,b,step) ───────────────────────────────
+    // ── range(n) / range(a,b) / range(a,b,step) ────────────────────────────
     defineNative("range", [](int n, Value* a) -> Value {
         if (n<1||a[0].type!=ValueType::NUMBER) return Value::array();
         double start=0,end=std::get<double>(a[0].data),step=1;
@@ -1083,6 +1084,75 @@ VM::VM() {
         auto arr=std::make_shared<VionArray>();
         for(double v=start;step>0?v<end:v>end;v+=step) arr->elements.push_back(Value::number(v));
         return Value::array(arr);
+    });
+
+    // ── Regex ────────────────────────────────────────────────────────────────
+    auto makeRegex = [](const std::string& pattern) {
+        return std::regex(pattern, std::regex_constants::ECMAScript);
+    };
+    defineNative("regex_match", [makeRegex](int n, Value* a) -> Value {
+        if (n!=2||a[0].type!=ValueType::STRING||a[1].type!=ValueType::STRING) return Value::boolean(false);
+        try {
+            auto re = makeRegex(std::get<std::string>(a[1].data));
+            return Value::boolean(std::regex_match(std::get<std::string>(a[0].data), re));
+        } catch(...) { return Value::boolean(false); }
+    });
+    defineNative("regex_search", [makeRegex](int n, Value* a) -> Value {
+        if (n!=2||a[0].type!=ValueType::STRING||a[1].type!=ValueType::STRING) return Value::boolean(false);
+        try {
+            auto re = makeRegex(std::get<std::string>(a[1].data));
+            return Value::boolean(std::regex_search(std::get<std::string>(a[0].data), re));
+        } catch(...) { return Value::boolean(false); }
+    });
+    defineNative("regex_find", [makeRegex](int n, Value* a) -> Value {
+        if (n!=2||a[0].type!=ValueType::STRING||a[1].type!=ValueType::STRING) return Value::array();
+        try {
+            std::string s=std::get<std::string>(a[0].data);
+            auto re = makeRegex(std::get<std::string>(a[1].data));
+            auto arr=std::make_shared<VionArray>();
+            std::sregex_iterator it(s.begin(),s.end(),re), end;
+            for(;it!=end;++it) arr->elements.push_back(Value::string((*it)[0].str()));
+            return Value::array(arr);
+        } catch(...) { return Value::array(); }
+    });
+    defineNative("regex_replace", [makeRegex](int n, Value* a) -> Value {
+        if (n!=3||a[0].type!=ValueType::STRING||a[1].type!=ValueType::STRING||a[2].type!=ValueType::STRING) return Value::nil();
+        try {
+            auto re = makeRegex(std::get<std::string>(a[1].data));
+            return Value::string(std::regex_replace(std::get<std::string>(a[0].data),re,std::get<std::string>(a[2].data)));
+        } catch(...) { return a[0]; }
+    });
+    defineNative("regex_split", [makeRegex](int n, Value* a) -> Value {
+        if (n!=2||a[0].type!=ValueType::STRING||a[1].type!=ValueType::STRING) return Value::array();
+        try {
+            std::string s=std::get<std::string>(a[0].data);
+            auto re = makeRegex(std::get<std::string>(a[1].data));
+            auto arr=std::make_shared<VionArray>();
+            std::sregex_token_iterator it(s.begin(),s.end(),re,-1), end;
+            for(;it!=end;++it) arr->elements.push_back(Value::string(it->str()));
+            return Value::array(arr);
+        } catch(...) { return Value::array(); }
+    });
+
+    // ── instanceof / class utilities ──────────────────────────────────────────
+    defineNative("isinstance", [](int n, Value* a) -> Value {
+        if (n!=2||a[0].type!=ValueType::INSTANCE||a[1].type!=ValueType::CLASS) return Value::boolean(false);
+        auto inst = std::get<std::shared_ptr<VionInstance>>(a[0].data);
+        auto targetClass = std::get<std::shared_ptr<VionClass>>(a[1].data);
+        auto* klass = inst->klass.get();
+        while (klass) {
+            if (klass == targetClass.get()) return Value::boolean(true);
+            klass = klass->superclass.get();
+        }
+        return Value::boolean(false);
+    });
+    defineNative("classname", [](int n, Value* a) -> Value {
+        if (n!=1) return Value::nil();
+        if (a[0].type==ValueType::INSTANCE)
+            return Value::string(std::get<std::shared_ptr<VionInstance>>(a[0].data)->klass->name);
+        if (a[0].type==ValueType::CLASS)
+            return Value::string(std::get<std::shared_ptr<VionClass>>(a[0].data)->name);
+        return Value::nil();
     });
 }
 
@@ -1346,22 +1416,53 @@ InterpretResult VM::run() {
                     int required = function->requiredArity > 0 ? function->requiredArity : function->arity;
                     if (argCount < required || argCount > function->arity) {
                         std::string msg = "Expected ";
-                        if (required == function->arity) {
-                            msg += std::to_string(function->arity);
-                        } else {
-                            msg += std::to_string(required) + "-" + std::to_string(function->arity);
-                        }
+                        if (required == function->arity) msg += std::to_string(function->arity);
+                        else msg += std::to_string(required) + "-" + std::to_string(function->arity);
                         msg += " arguments but got " + std::to_string(argCount) + ".";
                         if (!handleError(msg)) return InterpretResult::INTERPRET_RUNTIME_ERROR;
                         break;
                     }
-                    // Pad missing optional args with nil
                     for (int i = argCount; i < function->arity; i++) push(Value::nil());
                     CallFrame frame;
                     frame.function = function;
                     frame.ip = function->chunk->code.data();
                     frame.slots_base = stack.size() - function->arity - 1;
                     frames.push_back(frame);
+                } else if (callee.type == ValueType::CLASS) {
+                    // Instantiate class: replace CLASS value on stack with new INSTANCE
+                    auto klass = std::get<std::shared_ptr<VionClass>>(callee.data);
+                    auto inst = std::make_shared<VionInstance>();
+                    inst->klass = klass;
+                    Value instanceVal = Value::instance(inst);
+                    // Replace class on stack with instance (self = slot 0, the callee slot)
+                    stack[stack.size() - 1 - argCount] = instanceVal;
+                    // If init method exists, call it like a regular function
+                    auto initIt = klass->methods.find("init");
+                    if (initIt != klass->methods.end()) {
+                        auto initFn = std::get<std::shared_ptr<BytecodeFunction>>(initIt->second.data);
+                        int initArity = initFn->arity; // arity = declared params, NOT including self
+                        if (argCount < initArity || argCount > initArity) {
+                            if (!handleError("init() expects " + std::to_string(initArity) + " arguments, got " + std::to_string(argCount) + "."))
+                                return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                            break;
+                        }
+                        for (int i = argCount; i < initArity; i++) push(Value::nil());
+                        CallFrame frame;
+                        frame.function = initFn;
+                        frame.ip = initFn->chunk->code.data();
+                        // Same convention as regular functions: slots_base = N - arity - 1
+                        // slot[slots_base + 0] = instance (self), slot[slots_base + 1] = arg1, ...
+                        frame.slots_base = stack.size() - initFn->arity - 1;
+                        frames.push_back(frame);
+                    } else {
+                        // No init: instance is already on stack, no call needed
+                        if (argCount > 0) {
+                            if (!handleError("Class has no init() but arguments were passed."))
+                                return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                            break;
+                        }
+                        // Instance already at stack[size - 1], no frame needed
+                    }
                 } else if (callee.type == ValueType::NATIVE_FUNCTION) {
                     auto native = std::get<std::shared_ptr<VMNativeFunction>>(callee.data);
                     Value result = native->function(argCount, stack.data() + stack.size() - argCount);
@@ -1380,6 +1481,15 @@ InterpretResult VM::run() {
                 if (frames.empty()) {
                     pop(); // pop the script function
                     return InterpretResult::INTERPRET_OK;
+                }
+                // If returning from 'init', always return self (instance at slot 0)
+                if (frame.function->name == "init" && frame.slots_base < stack.size()) {
+                    Value selfVal = stack[frame.slots_base];
+                    if (selfVal.type == ValueType::INSTANCE) {
+                        stack.erase(stack.begin() + frame.slots_base, stack.end());
+                        push(selfVal);
+                        break;
+                    }
                 }
                 stack.erase(stack.begin() + frame.slots_base, stack.end());
                 push(result);
@@ -1458,17 +1568,31 @@ InterpretResult VM::run() {
             case static_cast<uint8_t>(OpCode::OP_GET_PROPERTY): {
                 Value name = readConstant();
                 Value receiver = pop();
+                std::string propName = name.toString();
                 
-                if (receiver.type == ValueType::MAP) {
-                    auto map = std::get<std::shared_ptr<VionMap>>(receiver.data);
-                    auto it = map->entries.find(name.toString());
-                    if (it != map->entries.end()) {
-                        push(it->second);
-                    } else {
-                        push(Value::nil());
+                if (receiver.type == ValueType::INSTANCE) {
+                    auto inst = std::get<std::shared_ptr<VionInstance>>(receiver.data);
+                    // Check instance fields first
+                    auto fit = inst->fields.find(propName);
+                    if (fit != inst->fields.end()) { push(fit->second); break; }
+                    // Then class methods
+                    auto* klass = inst->klass.get();
+                    while (klass) {
+                        auto mit = klass->methods.find(propName);
+                        if (mit != klass->methods.end()) { push(mit->second); break; }
+                        klass = klass->superclass.get();
                     }
+                    if (!klass) push(Value::nil());
+                } else if (receiver.type == ValueType::MAP) {
+                    auto map = std::get<std::shared_ptr<VionMap>>(receiver.data);
+                    auto it = map->entries.find(propName);
+                    push(it != map->entries.end() ? it->second : Value::nil());
+                } else if (receiver.type == ValueType::CLASS) {
+                    auto klass = std::get<std::shared_ptr<VionClass>>(receiver.data);
+                    auto it = klass->statics.find(propName);
+                    push(it != klass->statics.end() ? it->second : Value::nil());
                 } else {
-                    std::cerr << "Runtime Error: Only maps support property access.\n";
+                    std::cerr << "Runtime Error: Only instances, maps, and classes support property access.\n";
                     return InterpretResult::INTERPRET_RUNTIME_ERROR;
                 }
                 break;
@@ -1476,14 +1600,19 @@ InterpretResult VM::run() {
             case static_cast<uint8_t>(OpCode::OP_SET_PROPERTY): {
                 Value name = readConstant();
                 Value value = pop();
-                Value receiver = pop();
+                Value receiver = pop(); // receiver is under value on stack
+                std::string propName = name.toString();
                 
-                if (receiver.type == ValueType::MAP) {
+                if (receiver.type == ValueType::INSTANCE) {
+                    auto inst = std::get<std::shared_ptr<VionInstance>>(receiver.data);
+                    inst->fields[propName] = value;
+                    push(value);
+                } else if (receiver.type == ValueType::MAP) {
                     auto map = std::get<std::shared_ptr<VionMap>>(receiver.data);
-                    map->entries[name.toString()] = value;
+                    map->entries[propName] = value;
                     push(value);
                 } else {
-                    std::cerr << "Runtime Error: Only maps support property assignment.\n";
+                    std::cerr << "Runtime Error: Only instances and maps support property assignment.\n";
                     return InterpretResult::INTERPRET_RUNTIME_ERROR;
                 }
                 break;
@@ -1491,54 +1620,70 @@ InterpretResult VM::run() {
             case static_cast<uint8_t>(OpCode::OP_INVOKE): {
                 Value methodName = readConstant();
                 int argCount = readByte();
+                std::string mName = methodName.toString();
                 Value receiver = stack[stack.size() - argCount - 1];
                 
-                Value methodVal;
-                bool found = false;
-
-                if (receiver.type == ValueType::MAP) {
-                    auto map = std::get<std::shared_ptr<VionMap>>(receiver.data);
-                    auto it = map->entries.find(methodName.toString());
-                    if (it != map->entries.end()) {
-                        methodVal = it->second;
-                        found = true;
+                if (receiver.type == ValueType::INSTANCE) {
+                    auto inst = std::get<std::shared_ptr<VionInstance>>(receiver.data);
+                    // Look up method in class hierarchy
+                    Value methodVal;
+                    bool found = false;
+                    auto* klass = inst->klass.get();
+                    while (klass && !found) {
+                        auto mit = klass->methods.find(mName);
+                        if (mit != klass->methods.end()) { methodVal = mit->second; found = true; }
+                        else klass = klass->superclass.get();
                     }
-                }
-
-                if (!found && globals.find(methodName.toString()) != globals.end()) {
-                    methodVal = globals[methodName.toString()];
-                    found = true;
-                }
-                
-                if (!found) {
-                    std::cerr << "Runtime Error: method '" << methodName.toString() << "' not found.\n";
-                    return InterpretResult::INTERPRET_RUNTIME_ERROR;
-                }
-
-                if (methodVal.type == ValueType::BYTECODE_FUNCTION) {
+                    if (!found) {
+                        if (!handleError("Undefined method '" + mName + "' on " + inst->klass->name + "."))
+                            return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                        break;
+                    }
+                    // receiver is already at stack[size - argCount - 1] (self = slot 0)
                     auto function = std::get<std::shared_ptr<BytecodeFunction>>(methodVal.data);
-                    if (argCount != function->arity) {
-                        std::cerr << "Runtime Error: Expected " << function->arity << " arguments but got " << argCount << ".\n";
-                        return InterpretResult::INTERPRET_RUNTIME_ERROR;
-                    }
-                    // Replace receiver with function so OP_CALL semantics hold
-                    stack[stack.size() - argCount - 1] = methodVal;
-
+                    for (int i = argCount; i < function->arity; i++) push(Value::nil()); // pad optional args
                     CallFrame frame;
                     frame.function = function;
                     frame.ip = function->chunk->code.data();
-                    frame.slots_base = stack.size() - argCount - 1;
+                    frame.slots_base = stack.size() - function->arity - 1;
                     frames.push_back(frame);
-                } else if (methodVal.type == ValueType::NATIVE_FUNCTION) {
-                    auto nativeFunc = std::get<std::shared_ptr<VMNativeFunction>>(methodVal.data);
-                    Value* args = stack.data() + stack.size() - argCount - 1;
-                    Value result = nativeFunc->function(argCount + 1, args);
-                    
-                    stack.erase(stack.end() - argCount - 1, stack.end());
-                    push(result);
+                } else if (receiver.type == ValueType::MAP) {
+                    auto map = std::get<std::shared_ptr<VionMap>>(receiver.data);
+                    auto it = map->entries.find(mName);
+                    if (it == map->entries.end()) {
+                        if (!handleError("Undefined method '" + mName + "'.")) return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                        break;
+                    }
+                    Value methodVal = it->second;
+                    stack[stack.size() - argCount - 1] = methodVal;
+                    if (methodVal.type == ValueType::BYTECODE_FUNCTION) {
+                        auto function = std::get<std::shared_ptr<BytecodeFunction>>(methodVal.data);
+                        CallFrame frame;
+                        frame.function = function;
+                        frame.ip = function->chunk->code.data();
+                        frame.slots_base = stack.size() - argCount - 1;
+                        frames.push_back(frame);
+                    } else if (methodVal.type == ValueType::NATIVE_FUNCTION) {
+                        auto native = std::get<std::shared_ptr<VMNativeFunction>>(methodVal.data);
+                        Value result = native->function(argCount, stack.data() + stack.size() - argCount);
+                        stack.erase(stack.begin() + stack.size() - argCount - 1, stack.end());
+                        push(result);
+                    }
                 } else {
-                    std::cerr << "Runtime Error: can only invoke functions.\n";
-                    return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                    // Fallback to global method lookup
+                    auto git = globals.find(mName);
+                    if (git == globals.end()) {
+                        if (!handleError("Undefined method '" + mName + "'.")) return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                        break;
+                    }
+                    Value methodVal = git->second;
+                    stack[stack.size() - argCount - 1] = methodVal;
+                    if (methodVal.type == ValueType::NATIVE_FUNCTION) {
+                        auto native = std::get<std::shared_ptr<VMNativeFunction>>(methodVal.data);
+                        Value result = native->function(argCount, stack.data() + stack.size() - argCount);
+                        stack.erase(stack.begin() + stack.size() - argCount - 1, stack.end());
+                        push(result);
+                    }
                 }
                 break;
             }
@@ -1597,6 +1742,102 @@ InterpretResult VM::run() {
             default:
                 std::cerr << "Runtime Error: Unknown OpCode: " << static_cast<int>(instruction) << "\n";
                 return InterpretResult::INTERPRET_RUNTIME_ERROR;
+            // ── Class System ──────────────────────────────────────────────────
+            case static_cast<uint8_t>(OpCode::OP_CLASS): {
+                Value nameVal = readConstant();
+                auto klass = std::make_shared<VionClass>();
+                klass->name = nameVal.toString();
+                push(Value::vionClass(klass));
+                break;
+            }
+            case static_cast<uint8_t>(OpCode::OP_METHOD): {
+                Value nameVal = readConstant();
+                uint8_t isStatic = readByte();
+                Value method = pop(); // the function
+                Value classVal = stack.back(); // peek
+                if (classVal.type != ValueType::CLASS) {
+                    std::cerr << "Runtime Error: OP_METHOD on non-class.\n";
+                    return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                }
+                auto klass = std::get<std::shared_ptr<VionClass>>(classVal.data);
+                if (isStatic) klass->statics[nameVal.toString()] = method;
+                else          klass->methods[nameVal.toString()] = method;
+                break;
+            }
+            case static_cast<uint8_t>(OpCode::OP_INHERIT): {
+                // TOS = subclass, TOS-1 = superclass
+                Value subclassVal = pop();
+                Value superclassVal = stack.back(); // peek super
+                if (superclassVal.type != ValueType::CLASS || subclassVal.type != ValueType::CLASS) {
+                    std::cerr << "Runtime Error: Superclass must be a class.\n";
+                    return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                }
+                auto super = std::get<std::shared_ptr<VionClass>>(superclassVal.data);
+                auto sub = std::get<std::shared_ptr<VionClass>>(subclassVal.data);
+                sub->superclass = super;
+                // Copy inherited methods (shallow)
+                for (auto& [k, v] : super->methods) {
+                    if (sub->methods.find(k) == sub->methods.end())
+                        sub->methods[k] = v;
+                }
+                pop(); // pop superclass
+                push(subclassVal); // push subclass back
+                break;
+            }
+            case static_cast<uint8_t>(OpCode::OP_GET_SUPER): {
+                Value nameVal = readConstant();
+                Value self = pop();
+                if (self.type != ValueType::INSTANCE) {
+                    push(Value::nil()); break;
+                }
+                auto inst = std::get<std::shared_ptr<VionInstance>>(self.data);
+                std::string mName = nameVal.toString();
+                auto* klass = inst->klass->superclass.get();
+                while (klass) {
+                    auto it = klass->methods.find(mName);
+                    if (it != klass->methods.end()) { push(it->second); break; }
+                    klass = klass->superclass.get();
+                }
+                if (!klass) push(Value::nil());
+                break;
+            }
+            // ── Bitwise ──────────────────────────────────────────────────────
+            case static_cast<uint8_t>(OpCode::OP_BITWISE_AND): {
+                Value b = pop(); Value a = pop();
+                if (a.type!=ValueType::NUMBER||b.type!=ValueType::NUMBER) return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                push(Value::number((double)((long long)std::get<double>(a.data) & (long long)std::get<double>(b.data))));
+                break;
+            }
+            case static_cast<uint8_t>(OpCode::OP_BITWISE_OR): {
+                Value b = pop(); Value a = pop();
+                if (a.type!=ValueType::NUMBER||b.type!=ValueType::NUMBER) return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                push(Value::number((double)((long long)std::get<double>(a.data) | (long long)std::get<double>(b.data))));
+                break;
+            }
+            case static_cast<uint8_t>(OpCode::OP_BITWISE_XOR): {
+                Value b = pop(); Value a = pop();
+                if (a.type!=ValueType::NUMBER||b.type!=ValueType::NUMBER) return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                push(Value::number((double)((long long)std::get<double>(a.data) ^ (long long)std::get<double>(b.data))));
+                break;
+            }
+            case static_cast<uint8_t>(OpCode::OP_BITWISE_NOT): {
+                Value a = pop();
+                if (a.type!=ValueType::NUMBER) return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                push(Value::number((double)(~(long long)std::get<double>(a.data))));
+                break;
+            }
+            case static_cast<uint8_t>(OpCode::OP_SHIFT_LEFT): {
+                Value b = pop(); Value a = pop();
+                if (a.type!=ValueType::NUMBER||b.type!=ValueType::NUMBER) return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                push(Value::number((double)((long long)std::get<double>(a.data) << (int)std::get<double>(b.data))));
+                break;
+            }
+            case static_cast<uint8_t>(OpCode::OP_SHIFT_RIGHT): {
+                Value b = pop(); Value a = pop();
+                if (a.type!=ValueType::NUMBER||b.type!=ValueType::NUMBER) return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                push(Value::number((double)((long long)std::get<double>(a.data) >> (int)std::get<double>(b.data))));
+                break;
+            }
         }
     }
 }

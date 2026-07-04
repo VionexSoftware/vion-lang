@@ -27,7 +27,9 @@ enum class ValueType {
     NIL,
     BYTECODE_FUNCTION,
     NATIVE_FUNCTION,
-    DB_CONNECTION
+    DB_CONNECTION,
+    CLASS,
+    INSTANCE
 };
 
 using NativeFn = std::function<struct Value(int argCount, struct Value* args)>;
@@ -47,6 +49,29 @@ struct VionMap : public GCObject {
     std::unordered_map<std::string, struct Value> entries;
     void trace(std::vector<std::shared_ptr<GCObject>>& children) const override;
     void breakCycles() override { entries.clear(); }
+};
+
+// ── Class system ──────────────────────────────────────────────────────────────
+
+// Forward declare for VionClass
+struct VionClass;
+
+struct VionClass : public GCObject {
+    std::string name;
+    std::unordered_map<std::string, struct Value> methods;  // name → BytecodeFunction
+    std::unordered_map<std::string, struct Value> statics;  // static methods/fields
+    std::shared_ptr<VionClass> superclass;  // nullptr = no parent
+
+    void trace(std::vector<std::shared_ptr<GCObject>>& children) const override {}
+    void breakCycles() override { methods.clear(); statics.clear(); superclass.reset(); }
+};
+
+struct VionInstance : public GCObject {
+    std::shared_ptr<VionClass> klass;
+    std::unordered_map<std::string, struct Value> fields;  // instance fields
+
+    void trace(std::vector<std::shared_ptr<GCObject>>& children) const override {}
+    void breakCycles() override { fields.clear(); klass.reset(); }
 };
 
 // SQLite database connection wrapper — supports multiple drivers
@@ -94,7 +119,9 @@ struct Value {
         std::shared_ptr<VionMap>,
         std::shared_ptr<BytecodeFunction>,
         std::shared_ptr<VMNativeFunction>,
-        std::shared_ptr<VionDB>
+        std::shared_ptr<VionDB>,
+        std::shared_ptr<VionClass>,
+        std::shared_ptr<VionInstance>
     > data;
 
     // ── Factories ──────────────────────────────────────────────────────────
@@ -130,6 +157,12 @@ struct Value {
         Value r; r.type = ValueType::DB_CONNECTION; r.data = std::move(v); return r;
     }
     static Value nil() { return Value{}; }
+    static Value vionClass(std::shared_ptr<VionClass> v) {
+        Value r; r.type = ValueType::CLASS; r.data = std::move(v); return r;
+    }
+    static Value instance(std::shared_ptr<VionInstance> v) {
+        Value r; r.type = ValueType::INSTANCE; r.data = std::move(v); return r;
+    }
 
     // ── Accessors ──────────────────────────────────────────────────────────
 
@@ -176,6 +209,8 @@ struct Value {
             case ValueType::ARRAY:    return true;
             case ValueType::MAP:      return true;
             case ValueType::DB_CONNECTION: return true;
+            case ValueType::CLASS:    return true;
+            case ValueType::INSTANCE: return true;
         }
         return false;
     }
@@ -192,6 +227,8 @@ struct Value {
             case ValueType::ARRAY: return std::get<std::shared_ptr<VionArray>>(data) == std::get<std::shared_ptr<VionArray>>(other.data);
             case ValueType::MAP: return std::get<std::shared_ptr<VionMap>>(data) == std::get<std::shared_ptr<VionMap>>(other.data);
             case ValueType::DB_CONNECTION: return std::get<std::shared_ptr<VionDB>>(data) == std::get<std::shared_ptr<VionDB>>(other.data);
+            case ValueType::CLASS: return std::get<std::shared_ptr<VionClass>>(data) == std::get<std::shared_ptr<VionClass>>(other.data);
+            case ValueType::INSTANCE: return std::get<std::shared_ptr<VionInstance>>(data) == std::get<std::shared_ptr<VionInstance>>(other.data);
         }
         return false;
     }
@@ -279,6 +316,31 @@ struct Value {
                 if (dbConn->closed || !dbConn->db) return "<db:closed>";
                 return "<db:" + std::string(sqlite3_db_filename(dbConn->db, "main")) + ">";
             }
+            case ValueType::CLASS: {
+                auto klass = std::get<std::shared_ptr<VionClass>>(data);
+                return "<class " + klass->name + ">";
+            }
+            case ValueType::INSTANCE: {
+                auto inst = std::get<std::shared_ptr<VionInstance>>(data);
+                // Check for __str__ method
+                auto it = inst->klass->methods.find("__str__");
+                if (it == inst->klass->methods.end())
+                    it = inst->klass->methods.find("to_string");
+                // Print fields as map-like for now
+                if (visited.count(inst.get())) return "[Circular]";
+                visited.insert(inst.get());
+                std::ostringstream out;
+                out << inst->klass->name << "{";
+                bool first = true;
+                for (const auto& [k, v] : inst->fields) {
+                    if (!first) out << ", ";
+                    first = false;
+                    out << k << ": " << v.toStringImpl(visited, quoteStrings);
+                }
+                out << "}";
+                visited.erase(inst.get());
+                return out.str();
+            }
             case ValueType::NIL:
                 return "null"; // JSON uses null instead of nil
         }
@@ -296,6 +358,11 @@ struct Value {
             case ValueType::MAP:      return "map";
             case ValueType::NIL:      return "nil";
             case ValueType::DB_CONNECTION: return "db";
+            case ValueType::CLASS: return "class";
+            case ValueType::INSTANCE: {
+                auto inst = std::get<std::shared_ptr<VionInstance>>(data);
+                return inst->klass->name;
+            }
             default: return "unknown";
         }
         return "unknown";
