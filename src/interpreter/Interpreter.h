@@ -3,6 +3,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "parser/AST.h"
@@ -26,20 +27,26 @@ public:
     void interpret(const Program& program);
     void executeBlock(const BlockStmt& block, std::shared_ptr<Environment> blockEnvironment);
 
+    // Public for import support
+    void setCurrentDir(const std::string& dir) { currentDir_ = dir; }
+
+    void execute(const Stmt& statement);
+    Value evaluate(const Expr& expression);
+
 private:
     std::shared_ptr<Environment> globals;
     std::shared_ptr<Environment> environment;
     int callDepth = 0;
     static constexpr int kMaxCallDepth = 500;
-
-    void execute(const Stmt& statement);
-    Value evaluate(const Expr& expression);
+    std::string currentDir_;
+    std::unordered_set<std::string> importedFiles_;
 
     Value evaluateUnary(const UnaryExpr& expression);
     Value evaluateLogical(const LogicalExpr& expression);
     Value evaluateBinary(const BinaryExpr& expression);
     Value evaluateCall(const CallExpr& expression);
     Value evaluateIndex(const IndexExpr& expression);
+    void executeImport(const ImportStmt& stmt);
 
     bool valuesEqual(const Value& left, const Value& right) const;
 

@@ -4,13 +4,16 @@
 
 Environment::Environment(std::shared_ptr<Environment> enclosing) : enclosing(std::move(enclosing)) {}
 
-void Environment::define(const std::string& name, const Value& value) {
+void Environment::define(const std::string& name, const Value& value, bool isConst) {
     values[name] = value;
+    if (isConst) constants_.insert(name);
 }
 
 void Environment::assign(const std::string& name, const Value& value) {
     auto found = values.find(name);
     if (found != values.end()) {
+        if (constants_.count(name))
+            throw std::runtime_error("Runtime Error: cannot reassign const '" + name + "'.");
         found->second = value;
         return;
     }

@@ -1,3 +1,4 @@
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -106,9 +107,10 @@ static void printAst(const std::string& source) {
     std::cout << program.toString();
 }
 
-static void runProgram(const std::string& source) {
+static void runProgram(const std::string& source, const std::string& dir = "") {
     Program program = parseProgram(source);
     Interpreter interpreter;
+    if (!dir.empty()) interpreter.setCurrentDir(dir);
     interpreter.interpret(program);
 }
 
@@ -205,7 +207,8 @@ int main(int argc, char* argv[]) {
 
         if (isVionFilePath(command)) {
             std::string source = readFile(command);
-            runProgram(source);
+            std::string dir = std::filesystem::path(command).parent_path().string();
+            runProgram(source, dir);
             return 0;
         }
 
@@ -229,7 +232,8 @@ int main(int argc, char* argv[]) {
         }
 
         if (isOneOf(command, {"run", "--run", "-r"})) {
-            runProgram(source);
+            std::string dir = std::filesystem::path(filePath).parent_path().string();
+            runProgram(source, dir);
             return 0;
         }
 

@@ -176,6 +176,51 @@ struct MapExpr : Expr {
     }
 };
 
+// condition ? thenExpr : elseExpr
+struct TernaryExpr : Expr {
+    std::unique_ptr<Expr> condition;
+    std::unique_ptr<Expr> thenExpr;
+    std::unique_ptr<Expr> elseExpr;
+    TernaryExpr(std::unique_ptr<Expr> condition, std::unique_ptr<Expr> thenExpr,
+                std::unique_ptr<Expr> elseExpr, int line = 0)
+        : condition(std::move(condition)), thenExpr(std::move(thenExpr)),
+          elseExpr(std::move(elseExpr)) { this->line = line; }
+    std::string toString() const override { return "(ternary)"; }
+};
+
+// "hello {expr} world"
+struct InterpolatedStringExpr : Expr {
+    std::vector<std::unique_ptr<Expr>> parts;  // StringExpr for literals, any Expr for interpolated
+    explicit InterpolatedStringExpr(std::vector<std::unique_ptr<Expr>> parts, int line = 0)
+        : parts(std::move(parts)) { this->line = line; }
+    std::string toString() const override { return "<interpolated-string>"; }
+};
+
+// match subject { pattern -> expr, ... _ -> expr }
+struct MatchCase {
+    std::unique_ptr<Expr> pattern;  // nullptr = wildcard _
+    std::unique_ptr<Expr> body;
+};
+
+struct MatchExpr : Expr {
+    std::unique_ptr<Expr> subject;
+    std::vector<MatchCase> cases;
+    explicit MatchExpr(std::unique_ptr<Expr> subject, std::vector<MatchCase> cases, int line = 0)
+        : subject(std::move(subject)), cases(std::move(cases)) { this->line = line; }
+    std::string toString() const override { return "<match>"; }
+};
+
+// obj.method(args) — desugars to method(obj, args)
+struct MethodCallExpr : Expr {
+    std::unique_ptr<Expr> object;
+    std::string method;
+    std::vector<std::unique_ptr<Expr>> arguments;
+    MethodCallExpr(std::unique_ptr<Expr> object, std::string method,
+                   std::vector<std::unique_ptr<Expr>> arguments, int line = 0)
+        : object(std::move(object)), method(std::move(method)),
+          arguments(std::move(arguments)) { this->line = line; }
+    std::string toString() const override { return "(." + method + ")"; }
+};
 // Forward declare FunctionStmt for LambdaExpr
 struct FunctionStmt;
 
@@ -292,9 +337,9 @@ struct IfStmt : Stmt {
 // co-own the function body without dangling references across REPL sessions.
 struct FunctionStmt : Stmt {
     std::string name;
-    std::vector<std::string> parameters;
+    std::vector<std::pair<std::string, std::shared_ptr<Expr>>> parameters;
     std::shared_ptr<BlockStmt> body;   // shared ownership — safe for closure capture
-    FunctionStmt(std::string name, std::vector<std::string> parameters,
+    FunctionStmt(std::string name, std::vector<std::pair<std::string, std::shared_ptr<Expr>>> parameters,
                  std::unique_ptr<BlockStmt> body, int line = 0)
         : name(std::move(name)), parameters(std::move(parameters)),
           body(std::move(body)) { this->line = line; }
@@ -303,7 +348,8 @@ struct FunctionStmt : Stmt {
         out << indentText(indent) << "Fn " << name << "(";
         for (std::size_t i = 0; i < parameters.size(); ++i) {
             if (i > 0) out << ", ";
-            out << parameters[i];
+            out << parameters[i].first;
+            if (parameters[i].second) out << " = " << parameters[i].second->toString();
         }
         out << ")\n";
         out << body->toString(indent + 2);
@@ -331,6 +377,41 @@ struct ContinueStmt : Stmt {
     std::string toString(int indent = 0) const override { return indentText(indent) + "Continue"; }
 };
 
+
+// const name = value (immutable binding)
+struct ConstStmt : Stmt {
+    std::string name;
+    std::unique_ptr<Expr> value;
+    ConstStmt(std::string name, std::unique_ptr<Expr> value, int line = 0)
+        : name(std::move(name)), value(std::move(value)) { this->line = line; }
+    std::string toString(int indent = 0) const override {
+        return indentText(indent) + "Const " + name + " = " + value->toString();
+    }
+};
+
+// try { ... } catch errVar { ... }
+struct TryCatchStmt : Stmt {
+    std::unique_ptr<BlockStmt> tryBody;
+    std::string catchVar;
+    std::unique_ptr<BlockStmt> catchBody;
+    TryCatchStmt(std::unique_ptr<BlockStmt> tryBody, std::string catchVar,
+                 std::unique_ptr<BlockStmt> catchBody, int line = 0)
+        : tryBody(std::move(tryBody)), catchVar(std::move(catchVar)),
+          catchBody(std::move(catchBody)) { this->line = line; }
+    std::string toString(int indent = 0) const override {
+        return indentText(indent) + "TryCatch";
+    }
+};
+
+// import "path.vion"
+struct ImportStmt : Stmt {
+    std::string path;
+    explicit ImportStmt(std::string path, int line = 0)
+        : path(std::move(path)) { this->line = line; }
+    std::string toString(int indent = 0) const override {
+        return indentText(indent) + "Import \"" + path + "\"";
+    }
+};
 // ── Program ───────────────────────────────────────────────────────────────────
 
 struct Program {

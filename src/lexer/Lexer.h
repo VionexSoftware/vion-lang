@@ -19,6 +19,7 @@ private:
     int column = 1;
     int tokenLine = 1;
     int tokenColumn = 1;
+    int interpDepth = 0;  // tracks {} nesting inside interpolated strings
 
     bool isAtEnd() const;
     char advance();
@@ -33,6 +34,8 @@ private:
     void identifier();
     void number();
     void string();
+    void multilineString();
+    void interpolatedString();
 
     bool isAlpha(char c) const;
     bool isDigit(char c) const;

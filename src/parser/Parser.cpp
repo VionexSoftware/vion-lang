@@ -25,10 +25,15 @@ std::unique_ptr<Stmt> Parser::functionDeclaration() {
 
     consume(TokenType::LEFT_PAREN, "expected '(' after function name.");
 
-    std::vector<std::string> parameters;
+    std::vector<std::pair<std::string, std::shared_ptr<Expr>>> parameters;
     if (!check(TokenType::RIGHT_PAREN)) {
         do {
-            parameters.push_back(consume(TokenType::IDENTIFIER, "expected parameter name.").lexeme);
+            std::string paramName = consume(TokenType::IDENTIFIER, "expected parameter name.").lexeme;
+            std::shared_ptr<Expr> defaultVal = nullptr;
+            if (match(TokenType::EQUAL)) {
+                defaultVal = expression();
+            }
+            parameters.push_back({paramName, std::move(defaultVal)});
         } while (match(TokenType::COMMA));
     }
 
@@ -40,6 +45,9 @@ std::unique_ptr<Stmt> Parser::functionDeclaration() {
 
 std::unique_ptr<Stmt> Parser::statement() {
     if (match(TokenType::LET))      return letStatement();
+    if (match(TokenType::CONST))    return constStatement();
+    if (match(TokenType::TRY))      return tryCatchStatement();
+    if (match(TokenType::IMPORT))   return importStatement();
     if (match(TokenType::PRINT))    return printStatement();
     if (match(TokenType::IF))       return ifStatement();
     if (match(TokenType::WHILE))    return whileStatement();
@@ -133,6 +141,35 @@ std::unique_ptr<Stmt> Parser::continueStatement() {
     return std::make_unique<ContinueStmt>(previous().line);
 }
 
+
+std::unique_ptr<Stmt> Parser::constStatement() {
+    const Token& name = consume(TokenType::IDENTIFIER, "expected variable name after 'const'.");
+    int stmtLine = name.line;
+    consume(TokenType::EQUAL, "expected '=' after const name.");
+    auto value = expression();
+    return std::make_unique<ConstStmt>(name.lexeme, std::move(value), stmtLine);
+}
+
+std::unique_ptr<Stmt> Parser::tryCatchStatement() {
+    int stmtLine = previous().line;
+    consume(TokenType::LEFT_BRACE, "expected '{' after 'try'.");
+    auto tryBody = blockStatement();
+    consume(TokenType::CATCH, "expected 'catch' after try block.");
+    std::string catchVar = "_err";
+    if (check(TokenType::IDENTIFIER)) {
+        catchVar = peek().lexeme;
+        advance();
+    }
+    consume(TokenType::LEFT_BRACE, "expected '{' after catch.");
+    auto catchBody = blockStatement();
+    return std::make_unique<TryCatchStmt>(std::move(tryBody), catchVar, std::move(catchBody), stmtLine);
+}
+
+std::unique_ptr<Stmt> Parser::importStatement() {
+    int stmtLine = previous().line;
+    const Token& path = consume(TokenType::STRING, "expected file path after 'import'.");
+    return std::make_unique<ImportStmt>(path.lexeme, stmtLine);
+}
 std::unique_ptr<Stmt> Parser::expressionStatement() {
     int stmtLine = peek().line;
     auto expr = expression();
@@ -202,6 +239,15 @@ std::unique_ptr<Expr> Parser::assignment() {
         }
 
         errorAt(equalsToken, "invalid assignment target.");
+    }
+
+    // Ternary: expr ? thenExpr : elseExpr
+    if (match(TokenType::QUESTION)) {
+        int ternLine = previous().line;
+        auto thenExpr = expression();
+        consume(TokenType::COLON, "expected ':' in ternary expression.");
+        auto elseExpr = expression();
+        return std::make_unique<TernaryExpr>(std::move(expr), std::move(thenExpr), std::move(elseExpr), ternLine);
     }
 
     return expr;
@@ -321,7 +367,46 @@ std::unique_ptr<Expr> Parser::call() {
     auto expr = primary();
 
     while (true) {
-        if (match(TokenType::LEFT_PAREN)) {
+        // String interpolation
+    if (match(TokenType::INTERP_START)) {
+        int interpLine = previous().line;
+        std::vector<std::unique_ptr<Expr>> parts;
+        // First literal part (may be empty)
+        parts.push_back(std::make_unique<StringExpr>(previous().lexeme, interpLine));
+        // Expression + mid parts
+        parts.push_back(expression());
+        while (match(TokenType::INTERP_MID)) {
+            parts.push_back(std::make_unique<StringExpr>(previous().lexeme, interpLine));
+            parts.push_back(expression());
+        }
+        consume(TokenType::INTERP_END, "expected end of interpolated string.");
+        parts.push_back(std::make_unique<StringExpr>(previous().lexeme, interpLine));
+        return std::make_unique<InterpolatedStringExpr>(std::move(parts), interpLine);
+    }
+
+    // Match expression
+    if (match(TokenType::MATCH)) {
+        int matchLine = previous().line;
+        auto subject = expression();
+        consume(TokenType::LEFT_BRACE, "expected '{' after match subject.");
+        std::vector<MatchCase> cases;
+        while (!check(TokenType::RIGHT_BRACE) && !isAtEnd()) {
+            std::unique_ptr<Expr> pattern = nullptr;
+            if (check(TokenType::IDENTIFIER) && peek().lexeme == "_") {
+                advance(); // consume _
+            } else {
+                pattern = expression();
+            }
+            consume(TokenType::ARROW, "expected '->' in match case.");
+            auto body = expression();
+            cases.push_back(MatchCase{std::move(pattern), std::move(body)});
+            match(TokenType::COMMA); // optional comma
+        }
+        consume(TokenType::RIGHT_BRACE, "expected '}' after match cases.");
+        return std::make_unique<MatchExpr>(std::move(subject), std::move(cases), matchLine);
+    }
+
+    if (match(TokenType::LEFT_PAREN)) {
             expr = finishCall(std::move(expr));
         } else if (match(TokenType::LEFT_BRACKET)) {
             // Index expression: expr[index]
@@ -329,6 +414,62 @@ std::unique_ptr<Expr> Parser::call() {
             auto index = expression();
             consume(TokenType::RIGHT_BRACKET, "expected ']' after index.");
             expr = std::make_unique<IndexExpr>(std::move(expr), std::move(index), bracketLine);
+        } else if (match(TokenType::DOT)) {
+            // Method call: obj.method(args) or property access: obj.key
+            int dotLine = previous().line;
+            const Token& prop = consume(TokenType::IDENTIFIER, "expected property name after '.'.");
+            // String interpolation
+    if (match(TokenType::INTERP_START)) {
+        int interpLine = previous().line;
+        std::vector<std::unique_ptr<Expr>> parts;
+        // First literal part (may be empty)
+        parts.push_back(std::make_unique<StringExpr>(previous().lexeme, interpLine));
+        // Expression + mid parts
+        parts.push_back(expression());
+        while (match(TokenType::INTERP_MID)) {
+            parts.push_back(std::make_unique<StringExpr>(previous().lexeme, interpLine));
+            parts.push_back(expression());
+        }
+        consume(TokenType::INTERP_END, "expected end of interpolated string.");
+        parts.push_back(std::make_unique<StringExpr>(previous().lexeme, interpLine));
+        return std::make_unique<InterpolatedStringExpr>(std::move(parts), interpLine);
+    }
+
+    // Match expression
+    if (match(TokenType::MATCH)) {
+        int matchLine = previous().line;
+        auto subject = expression();
+        consume(TokenType::LEFT_BRACE, "expected '{' after match subject.");
+        std::vector<MatchCase> cases;
+        while (!check(TokenType::RIGHT_BRACE) && !isAtEnd()) {
+            std::unique_ptr<Expr> pattern = nullptr;
+            if (check(TokenType::IDENTIFIER) && peek().lexeme == "_") {
+                advance(); // consume _
+            } else {
+                pattern = expression();
+            }
+            consume(TokenType::ARROW, "expected '->' in match case.");
+            auto body = expression();
+            cases.push_back(MatchCase{std::move(pattern), std::move(body)});
+            match(TokenType::COMMA); // optional comma
+        }
+        consume(TokenType::RIGHT_BRACE, "expected '}' after match cases.");
+        return std::make_unique<MatchExpr>(std::move(subject), std::move(cases), matchLine);
+    }
+
+    if (match(TokenType::LEFT_PAREN)) {
+                // Method call: obj.method(args)
+                std::vector<std::unique_ptr<Expr>> arguments;
+                if (!check(TokenType::RIGHT_PAREN)) {
+                    do { arguments.push_back(expression()); } while (match(TokenType::COMMA));
+                }
+                consume(TokenType::RIGHT_PAREN, "expected ')' after method arguments.");
+                expr = std::make_unique<MethodCallExpr>(std::move(expr), prop.lexeme, std::move(arguments), dotLine);
+            } else {
+                // Property access: obj.key → obj["key"]
+                auto key = std::make_unique<StringExpr>(prop.lexeme, dotLine);
+                expr = std::make_unique<IndexExpr>(std::move(expr), std::move(key), dotLine);
+            }
         } else {
             break;
         }
@@ -376,6 +517,45 @@ std::unique_ptr<Expr> Parser::primary() {
         return std::make_unique<IdentifierExpr>(previous().lexeme, previous().line);
     }
 
+    // String interpolation
+    if (match(TokenType::INTERP_START)) {
+        int interpLine = previous().line;
+        std::vector<std::unique_ptr<Expr>> parts;
+        // First literal part (may be empty)
+        parts.push_back(std::make_unique<StringExpr>(previous().lexeme, interpLine));
+        // Expression + mid parts
+        parts.push_back(expression());
+        while (match(TokenType::INTERP_MID)) {
+            parts.push_back(std::make_unique<StringExpr>(previous().lexeme, interpLine));
+            parts.push_back(expression());
+        }
+        consume(TokenType::INTERP_END, "expected end of interpolated string.");
+        parts.push_back(std::make_unique<StringExpr>(previous().lexeme, interpLine));
+        return std::make_unique<InterpolatedStringExpr>(std::move(parts), interpLine);
+    }
+
+    // Match expression
+    if (match(TokenType::MATCH)) {
+        int matchLine = previous().line;
+        auto subject = expression();
+        consume(TokenType::LEFT_BRACE, "expected '{' after match subject.");
+        std::vector<MatchCase> cases;
+        while (!check(TokenType::RIGHT_BRACE) && !isAtEnd()) {
+            std::unique_ptr<Expr> pattern = nullptr;
+            if (check(TokenType::IDENTIFIER) && peek().lexeme == "_") {
+                advance(); // consume _
+            } else {
+                pattern = expression();
+            }
+            consume(TokenType::ARROW, "expected '->' in match case.");
+            auto body = expression();
+            cases.push_back(MatchCase{std::move(pattern), std::move(body)});
+            match(TokenType::COMMA); // optional comma
+        }
+        consume(TokenType::RIGHT_BRACE, "expected '}' after match cases.");
+        return std::make_unique<MatchExpr>(std::move(subject), std::move(cases), matchLine);
+    }
+
     if (match(TokenType::LEFT_PAREN)) {
         auto expr = expression();
         consume(TokenType::RIGHT_PAREN, "expected ')' after expression.");
@@ -392,18 +572,21 @@ std::unique_ptr<Expr> Parser::primary() {
             advance();
         }
         consume(TokenType::LEFT_PAREN, "expected '(' after 'fn'.");
-        std::vector<std::string> params;
+        std::vector<std::pair<std::string, std::shared_ptr<Expr>>> params;
         if (!check(TokenType::RIGHT_PAREN)) {
-            do { params.push_back(consume(TokenType::IDENTIFIER, "expected parameter name.").lexeme); }
-            while (match(TokenType::COMMA));
+            do {
+                std::string paramName = consume(TokenType::IDENTIFIER, "expected parameter name.").lexeme;
+                std::shared_ptr<Expr> defaultVal = nullptr;
+                if (match(TokenType::EQUAL)) {
+                    defaultVal = expression();
+                }
+                params.push_back({paramName, std::move(defaultVal)});
+            } while (match(TokenType::COMMA));
         }
         consume(TokenType::RIGHT_PAREN, "expected ')' after parameters.");
         consume(TokenType::LEFT_BRACE, "expected '{' before fn body.");
         auto body = blockStatement();
         // Wrap in a FunctionStmt and return as LambdaExpr
-        // We create a fake FunctionStmt in-place via a special Expr
-        // Best approach: create a IdentifierExpr pointing to the stmt, but easiest is:
-        // store as a unique FunctionStmt and emit a ClosureExpr
         auto fnStmt = std::make_unique<FunctionStmt>(fnName, std::move(params), std::move(body), fnLine);
         return std::make_unique<LambdaExpr>(std::move(fnStmt), fnLine);
     }

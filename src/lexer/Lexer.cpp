@@ -70,6 +70,7 @@ void Lexer::scanToken() {
             addToken(TokenType::LEFT_BRACE);
             break;
         case '}':
+            if (interpDepth > 0) { --interpDepth; interpolatedString(); break; }
             addToken(TokenType::RIGHT_BRACE);
             break;
         case '[':
@@ -87,6 +88,9 @@ void Lexer::scanToken() {
         case ':':
             addToken(TokenType::COLON);
             break;
+        case '?':
+            addToken(TokenType::QUESTION);
+            break;
         case '+':
             addToken(match('=') ? TokenType::PLUS_EQUAL
                    : match('+') ? TokenType::PLUS_PLUS
@@ -95,6 +99,7 @@ void Lexer::scanToken() {
         case '-':
             addToken(match('=') ? TokenType::MINUS_EQUAL
                    : match('-') ? TokenType::MINUS_MINUS
+                   : match('>') ? TokenType::ARROW
                    : TokenType::MINUS);
             break;
         case '*':
@@ -133,7 +138,8 @@ void Lexer::scanToken() {
             column = 1;
             break;
         case '"':
-            string();
+            if (peek() == '"' && peekNext() == '"') { advance(); advance(); multilineString(); }
+            else { string(); }
             break;
         default:
             if (isDigit(c)) {
@@ -180,7 +186,12 @@ void Lexer::identifier() {
         {"or",       TokenType::OR},
         {"true",     TokenType::TRUE},
         {"false",    TokenType::FALSE},
-        {"nil",      TokenType::NIL}
+        {"nil",      TokenType::NIL},
+        {"const",    TokenType::CONST},
+        {"try",      TokenType::TRY},
+        {"catch",    TokenType::CATCH},
+        {"match",    TokenType::MATCH},
+        {"import",   TokenType::IMPORT}
     };
 
     auto found = keywords.find(text);
@@ -204,9 +215,19 @@ void Lexer::number() {
 
 void Lexer::string() {
     std::string value;
+    bool hasInterp = false;
 
     while (peek() != '"' && !isAtEnd()) {
         char ch = peek();
+
+        if (ch == '{') {
+            // String interpolation: emit what we have, switch to expression mode
+            addToken(hasInterp ? TokenType::INTERP_MID : TokenType::INTERP_START, value);
+            hasInterp = true;
+            current++; column++;
+            ++interpDepth;
+            return; // main loop will lex the expression; '}' handler calls interpolatedString()
+        }
 
         if (ch == '\n') {
             line++;
@@ -214,14 +235,9 @@ void Lexer::string() {
             value += '\n';
             current++;
         } else if (ch == '\\') {
-            // Handle escape sequences
-            current++;
-            column++;
+            current++; column++;
             if (isAtEnd()) break;
-
-            char escaped = source[current++];
-            column++;
-
+            char escaped = source[current++]; column++;
             switch (escaped) {
                 case 'n':  value += '\n'; break;
                 case 't':  value += '\t'; break;
@@ -229,16 +245,12 @@ void Lexer::string() {
                 case '\\': value += '\\'; break;
                 case '"':  value += '"';  break;
                 case '0':  value += '\0'; break;
-                default:
-                    // Unknown escape — keep as-is
-                    value += '\\';
-                    value += escaped;
-                    break;
+                case '{':  value += '{';  break;
+                default:   value += '\\'; value += escaped; break;
             }
         } else {
             value += ch;
-            current++;
-            column++;
+            current++; column++;
         }
     }
 
@@ -251,7 +263,78 @@ void Lexer::string() {
     }
 
     advance(); // closing "
-    addToken(TokenType::STRING, value);
+
+    if (hasInterp) {
+        addToken(TokenType::INTERP_END, value);
+    } else {
+        addToken(TokenType::STRING, value);
+    }
+}
+
+void Lexer::interpolatedString() {
+    // Called after '}' inside an interpolated string — resume scanning the string
+    std::string value;
+
+    while (peek() != '"' && !isAtEnd()) {
+        char ch = peek();
+
+        if (ch == '{') {
+            addToken(TokenType::INTERP_MID, value);
+            current++; column++;
+            ++interpDepth;
+            return;
+        }
+
+        if (ch == '\n') {
+            line++; column = 1; value += '\n'; current++;
+        } else if (ch == '\\') {
+            current++; column++;
+            if (isAtEnd()) break;
+            char escaped = source[current++]; column++;
+            switch (escaped) {
+                case 'n':  value += '\n'; break;
+                case 't':  value += '\t'; break;
+                case 'r':  value += '\r'; break;
+                case '\\': value += '\\'; break;
+                case '"':  value += '"';  break;
+                case '{':  value += '{';  break;
+                default:   value += '\\'; value += escaped; break;
+            }
+        } else {
+            value += ch; current++; column++;
+        }
+    }
+
+    if (isAtEnd()) {
+        throw std::runtime_error("Lexer Error at line " + std::to_string(tokenLine) +
+            ", column " + std::to_string(tokenColumn) + ": unterminated interpolated string.");
+    }
+
+    advance(); // closing "
+    addToken(TokenType::INTERP_END, value);
+}
+
+void Lexer::multilineString() {
+    std::string value;
+
+    while (!isAtEnd()) {
+        if (peek() == '"' && peekNext() == '"') {
+            // Check for third "
+            if (current + 2 < static_cast<int>(source.length()) && source[current + 2] == '"') {
+                advance(); advance(); advance(); // consume """
+                addToken(TokenType::STRING, value);
+                return;
+            }
+        }
+
+        char ch = peek();
+        if (ch == '\n') { line++; column = 1; }
+        value += ch;
+        current++; column++;
+    }
+
+    throw std::runtime_error("Lexer Error at line " + std::to_string(tokenLine) +
+        ", column " + std::to_string(tokenColumn) + ": unterminated multi-line string.");
 }
 
 bool Lexer::isAlpha(char c) const {

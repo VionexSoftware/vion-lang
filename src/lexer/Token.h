@@ -58,6 +58,17 @@ enum class TokenType {
     FALSE,
     NIL,
 
+    CONST,
+    TRY,
+    CATCH,
+    MATCH,
+    IMPORT,
+    ARROW,         // ->
+    QUESTION,      // ?
+    INTERP_START,  // start of interpolated string
+    INTERP_MID,    // middle segment of interpolated string
+    INTERP_END,    // end of interpolated string
+
     END_OF_FILE
 };
 
@@ -118,6 +129,16 @@ inline std::string tokenTypeToString(TokenType type) {
         case TokenType::TRUE:          return "TRUE";
         case TokenType::FALSE:         return "FALSE";
         case TokenType::NIL:           return "NIL";
+        case TokenType::CONST:         return "CONST";
+        case TokenType::TRY:           return "TRY";
+        case TokenType::CATCH:         return "CATCH";
+        case TokenType::MATCH:         return "MATCH";
+        case TokenType::IMPORT:        return "IMPORT";
+        case TokenType::ARROW:         return "ARROW";
+        case TokenType::QUESTION:      return "QUESTION";
+        case TokenType::INTERP_START:  return "INTERP_START";
+        case TokenType::INTERP_MID:    return "INTERP_MID";
+        case TokenType::INTERP_END:    return "INTERP_END";
         case TokenType::END_OF_FILE:   return "EOF";
         default:                       return "UNKNOWN";
     }

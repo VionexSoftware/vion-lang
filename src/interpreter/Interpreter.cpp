@@ -3,8 +3,11 @@
 #endif
 
 #include "interpreter/Interpreter.h"
+#include "lexer/Lexer.h"
+#include "parser/Parser.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <chrono>
 #include <cmath>
 #include <fstream>
@@ -39,14 +42,30 @@ public:
           closure_(std::move(closure)) {}
 
     int arity() const override {
-        return static_cast<int>(parameters_.size());
+        return -1; // Handle arity internally since some args might be optional
     }
 
     Value call(Interpreter& interpreter, const std::vector<Value>& arguments) override {
         auto callEnv = std::make_shared<Environment>(closure_);
 
+        std::size_t minArgs = 0;
+        for (const auto& p : parameters_) {
+            if (!p.second) minArgs++;
+        }
+
+        if (arguments.size() < minArgs || arguments.size() > parameters_.size()) {
+            std::string expected = minArgs == parameters_.size() 
+                ? std::to_string(minArgs) 
+                : std::to_string(minArgs) + "-" + std::to_string(parameters_.size());
+            throw std::runtime_error("Runtime Error: expected " + expected + " argument(s) but got " + std::to_string(arguments.size()) + ".");
+        }
+
         for (std::size_t i = 0; i < parameters_.size(); ++i) {
-            callEnv->define(parameters_[i], arguments[i]);
+            if (i < arguments.size()) {
+                callEnv->define(parameters_[i].first, arguments[i]);
+            } else {
+                callEnv->define(parameters_[i].first, interpreter.evaluate(*parameters_[i].second));
+            }
         }
 
         try {
@@ -64,7 +83,7 @@ public:
 
 private:
     std::string name_;
-    std::vector<std::string> parameters_;
+    std::vector<std::pair<std::string, std::shared_ptr<Expr>>> parameters_;
     std::shared_ptr<BlockStmt> body_;      // shared ownership — safe across REPL sessions
     std::shared_ptr<Environment> closure_;
 };
@@ -604,6 +623,20 @@ void Interpreter::registerBuiltins() {
         [](Interpreter&, const std::vector<Value>& a) -> Value {
             const char* v=std::getenv(a[0].asString().c_str()); return v?Value::string(v):Value::nil();
         })));
+
+    // -- forEach(array, fn) — call fn for each element
+    globals->define("forEach", Value::function(std::make_shared<NativeFunction>("forEach", 2,
+        [](Interpreter& interp, const std::vector<Value>& args) -> Value {
+            auto arr = args[0].asArray(); auto fn = args[1].asFunction();
+            for (const auto& e : arr->elements) fn->call(interp, {e});
+            return Value::nil();
+        })));
+
+    // -- toJSON / parseJSON
+    globals->define("toJSON", Value::function(std::make_shared<NativeFunction>("toJSON", 1,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            return Value::string(args[0].toString());
+        })));
 }
 
 // ── Core interpreter ──────────────────────────────────────────────────────────
@@ -642,6 +675,28 @@ void Interpreter::execute(const Stmt& statement) {
     if (const auto* letStmt = dynamic_cast<const LetStmt*>(&statement)) {
         Value value = evaluate(*letStmt->value);
         environment->define(letStmt->name, value);
+        return;
+    }
+
+    if (const auto* constStmt = dynamic_cast<const ConstStmt*>(&statement)) {
+        Value value = evaluate(*constStmt->value);
+        environment->define(constStmt->name, value, true);
+        return;
+    }
+
+    if (const auto* tryCatchStmt = dynamic_cast<const TryCatchStmt*>(&statement)) {
+        try {
+            executeBlock(*tryCatchStmt->tryBody, std::make_shared<Environment>(environment));
+        } catch (const std::runtime_error& e) {
+            auto catchEnv = std::make_shared<Environment>(environment);
+            catchEnv->define(tryCatchStmt->catchVar, Value::string(std::string(e.what())));
+            executeBlock(*tryCatchStmt->catchBody, catchEnv);
+        }
+        return;
+    }
+
+    if (const auto* importStmt = dynamic_cast<const ImportStmt*>(&statement)) {
+        executeImport(*importStmt);
         return;
     }
 
@@ -795,7 +850,9 @@ Value Interpreter::evaluate(const Expr& expression) {
         Value value = evaluate(*assignExpr->value);
         try {
             environment->assign(assignExpr->name, value);
-        } catch (const std::runtime_error&) {
+        } catch (const std::runtime_error& e) {
+            std::string msg = e.what();
+            if (msg.find("cannot reassign const") != std::string::npos) throw; // propagate const error
             throw std::runtime_error(
                 "Runtime Error" + locationOf(assignExpr->line) +
                 ": undefined variable '" + assignExpr->name + "'."
@@ -859,6 +916,57 @@ Value Interpreter::evaluate(const Expr& expression) {
     }
     if (const auto* lambdaExpr = dynamic_cast<const LambdaExpr*>(&expression)) {
         return Value::function(std::make_shared<VionFunction>(*lambdaExpr->decl, environment));
+    }
+    if (const auto* ternaryExpr = dynamic_cast<const TernaryExpr*>(&expression)) {
+        Value cond = evaluate(*ternaryExpr->condition);
+        return cond.isTruthy() ? evaluate(*ternaryExpr->thenExpr) : evaluate(*ternaryExpr->elseExpr);
+    }
+    if (const auto* interpExpr = dynamic_cast<const InterpolatedStringExpr*>(&expression)) {
+        std::ostringstream out;
+        for (const auto& part : interpExpr->parts) {
+            out << evaluate(*part).toString();
+        }
+        return Value::string(out.str());
+    }
+    if (const auto* matchExpr = dynamic_cast<const MatchExpr*>(&expression)) {
+        Value subject = evaluate(*matchExpr->subject);
+        for (const auto& c : matchExpr->cases) {
+            if (!c.pattern) return evaluate(*c.body); // wildcard _
+            Value pattern = evaluate(*c.pattern);
+            if (valuesEqual(subject, pattern)) return evaluate(*c.body);
+        }
+        throw std::runtime_error("Runtime Error" + locationOf(matchExpr->line) + ": no match found.");
+    }
+    if (const auto* methodExpr = dynamic_cast<const MethodCallExpr*>(&expression)) {
+        // Desugar: obj.method(args) → method(obj, args)
+        Value obj = evaluate(*methodExpr->object);
+        std::vector<Value> args;
+        args.push_back(obj);
+        for (const auto& arg : methodExpr->arguments) {
+            args.push_back(evaluate(*arg));
+        }
+        // Look up method in globals
+        Value fn;
+        try { fn = globals->get(methodExpr->method); }
+        catch (...) {
+            throw std::runtime_error("Runtime Error" + locationOf(methodExpr->line) +
+                ": unknown method '" + methodExpr->method + "'.");
+        }
+        if (fn.type != ValueType::FUNCTION)
+            throw std::runtime_error("Runtime Error" + locationOf(methodExpr->line) +
+                ": '" + methodExpr->method + "' is not a function.");
+        auto callable = fn.asFunction();
+        if (callable->arity() >= 0 && callable->arity() != static_cast<int>(args.size())) {
+            throw std::runtime_error("Runtime Error: expected " + std::to_string(callable->arity()) +
+                " argument(s) but got " + std::to_string(args.size()) + ".");
+        }
+        if (callDepth >= kMaxCallDepth) {
+            throw std::runtime_error("Runtime Error" + locationOf(methodExpr->line) +
+                ": maximum call stack depth (" + std::to_string(kMaxCallDepth) + ") exceeded.");
+        }
+        ++callDepth;
+        struct Guard { Interpreter& i; ~Guard() { --i.callDepth; } } guard{*this};
+        return callable->call(*this, args);
     }
 
     throw std::runtime_error("Runtime Error: unknown expression type.");
@@ -1033,9 +1141,53 @@ bool Interpreter::valuesEqual(const Value& left, const Value& right) const {
             return left.asFunction() == right.asFunction();
         case ValueType::ARRAY:
             return left.asArray() == right.asArray(); // reference equality
+        case ValueType::MAP:
+            return left.asMap() == right.asMap(); // reference equality
         case ValueType::NIL:
             return true;
     }
 
     return false;
+}
+
+void Interpreter::executeImport(const ImportStmt& stmt) {
+    namespace fs = std::filesystem;
+
+    // Resolve path relative to current file's directory
+    fs::path importPath(stmt.path);
+    if (importPath.is_relative() && !currentDir_.empty()) {
+        importPath = fs::path(currentDir_) / importPath;
+    }
+
+    std::string absPath = fs::absolute(importPath).string();
+
+    // Prevent circular imports
+    if (importedFiles_.count(absPath)) return;
+    importedFiles_.insert(absPath);
+
+    // Read file
+    std::ifstream f(absPath);
+    if (!f) throw std::runtime_error(
+        "Runtime Error" + locationOf(stmt.line) +
+        ": cannot import '" + stmt.path + "'.");
+
+    std::ostringstream buf;
+    buf << f.rdbuf();
+    std::string source = buf.str();
+
+    // Save current dir, set new dir
+    std::string prevDir = currentDir_;
+    currentDir_ = fs::path(absPath).parent_path().string();
+
+    // Lex + parse + execute in current (global) environment
+    Lexer lexer(source);
+    auto tokens = lexer.scanTokens();
+    Parser parser(std::move(tokens));
+    auto program = parser.parse();
+
+    for (const auto& s : program.statements) {
+        execute(*s);
+    }
+
+    currentDir_ = prevDir;
 }
