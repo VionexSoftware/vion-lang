@@ -136,7 +136,6 @@ function Invoke-WebRequestWithProgress {
     $buf    = New-Object byte[] 65536
     $downloaded = 0
 
-    Write-Host ""
     try {
         while (($read = $stream.Read($buf, 0, $buf.Length)) -gt 0) {
             $fs.Write($buf, 0, $read)
@@ -268,14 +267,13 @@ function Install-VSCodeExtension {
             catch { return $false }
         } | Select-Object -First 1
 
-    if ($null -eq $PackageJson) { Write-Warn "VS Code extension not found in release."; return "" }
+    if ($null -eq $PackageJson) { return "" }
 
     $ExtSrc = Split-Path -Parent $PackageJson.FullName
     $ExtDir = Join-Path $env:USERPROFILE ".vscode\extensions\vionex.vion-language-0.2.0"
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ExtDir) | Out-Null
     if (Test-Path $ExtDir) { Remove-Item -LiteralPath $ExtDir -Recurse -Force }
     Copy-Item -LiteralPath $ExtSrc -Destination $ExtDir -Recurse -Force
-    Write-OK "Installed VS Code extension → $ExtDir"
     return $ExtDir
 }
 
@@ -414,6 +412,11 @@ try {
         Start-Spin "Installing extension..."
         $VSCodeExtensionDir = Install-VSCodeExtension -Root $ExtractDir
         Stop-Spin
+        if ([string]::IsNullOrWhiteSpace($VSCodeExtensionDir)) {
+            Write-Warn "VS Code extension not found in release."
+        } else {
+            Write-OK "Installed VS Code extension → $VSCodeExtensionDir"
+        }
     } else {
         Write-Info "Skipped (--NoEditor)"
     }
