@@ -1,18 +1,18 @@
-<div align="center">
-  <img src="https://raw.githubusercontent.com/AlexanderPhan04/vion-lang/main/assets/vion-file-icon.svg" alt="Vion Language Logo" width="150" />
+﻿<div align="center">
+  <img src="https://raw.githubusercontent.com/VionexSoftware/vion-lang/main/assets/vion-file-icon.svg" alt="Vion Language Logo" width="150" />
   <h1>Vion Programming Language</h1>
   <p><strong>Modern. Simple. Fast.</strong></p>
 
   <p>
-    <a href="https://vion.vionex.software">Website</a> •
-    <a href="https://vion.vionex.software/docs">Documentation</a> •
-    <a href="https://github.com/AlexanderPhan04/vion-lang/releases">Releases</a>
+    <a href="https://vion.vionex.software">Website</a> â€¢
+    <a href="https://vion.vionex.software/docs">Documentation</a> â€¢
+    <a href="https://github.com/VionexSoftware/vion-lang/releases">Releases</a>
   </p>
 </div>
 
-Vion is an open-source scripting language created by Phan Nhật Quân and maintained by Vionex Software. It is a dynamically typed, experimental language built entirely from scratch in modern C++17. Originally started as a learning project for language implementation (Lexer, Parser, AST), Vion has evolved into a fully-fledged language running on a custom **Bytecode Virtual Machine**.
+Vion is an open-source scripting language created by Phan Nháº­t QuÃ¢n and maintained by Vionex Software. It is a dynamically typed, experimental language built entirely from scratch in modern C++17. Originally started as a learning project for language implementation (Lexer, Parser, AST), Vion has evolved into a fully-fledged language running on a custom **Bytecode Virtual Machine**.
 
-## 🚀 Features (v1.0.0)
+## ðŸš€ Features (v1.0.0)
 
 - **Bytecode Virtual Machine:** Vion compiles source code into custom bytecode and executes it on a fast, stack-based VM.
 - **Garbage Collection:** Tracing mark-and-sweep garbage collector for automatic memory management of arrays, maps, and closures.
@@ -24,17 +24,17 @@ Vion is an open-source scripting language created by Phan Nhật Quân and maint
 
 ---
 
-## ⚡ Quick Start
+## âš¡ Quick Start
 
 ### Installation (Windows)
 Open PowerShell (**no administrator privileges required**) and run the quick installer:
 ```powershell
-irm https://raw.githubusercontent.com/AlexanderPhan04/vion-lang/main/scripts/install-online-windows.ps1 | iex
+irm https://raw.githubusercontent.com/VionexSoftware/vion-lang/main/scripts/install-online-windows.ps1 | iex
 ```
 
 *(For better security, you can download and review the script before running it):*
 ```powershell
-irm https://raw.githubusercontent.com/AlexanderPhan04/vion-lang/main/scripts/install-online-windows.ps1 -OutFile install-vion.ps1
+irm https://raw.githubusercontent.com/VionexSoftware/vion-lang/main/scripts/install-online-windows.ps1 -OutFile install-vion.ps1
 notepad .\install-vion.ps1
 powershell -ExecutionPolicy Bypass -File .\install-vion.ps1
 ```
@@ -44,7 +44,7 @@ This will download the latest `vion.exe`, add it to your User PATH, and install 
 #### Uninstallation
 To completely remove Vion and its VS Code extension, run:
 ```powershell
-irm https://raw.githubusercontent.com/AlexanderPhan04/vion-lang/main/scripts/uninstall-windows.ps1 | iex
+irm https://raw.githubusercontent.com/VionexSoftware/vion-lang/main/scripts/uninstall-windows.ps1 | iex
 ```
 
 ### Hello World
@@ -59,7 +59,7 @@ vion run main.vion
 
 ---
 
-## 📖 Language Tour
+## ðŸ“– Language Tour
 
 ### Variables & Data Types
 ```javascript
@@ -132,14 +132,14 @@ print math.add(5, 3) // 8
 
 ---
 
-## 🛠️ Building from Source
+## ðŸ› ï¸ Building from Source
 
 Requirements:
 - C++17 compiler (GCC, Clang, or MSVC)
 - CMake 3.20+
 
 ```bash
-git clone https://github.com/AlexanderPhan04/vion-lang.git
+git clone https://github.com/VionexSoftware/vion-lang.git
 cd vion-lang
 mkdir build
 cd build
@@ -149,7 +149,7 @@ cmake --build . --config Release
 
 ---
 
-## 📝 CLI Commands
+## ðŸ“ CLI Commands
 
 Vion ships with a helpful CLI for debugging and running code:
 
@@ -161,5 +161,5 @@ Vion ships with a helpful CLI for debugging and running code:
 
 ---
 
-## 📄 License
-MIT License. Created by Phan Nhật Quân and maintained by Vionex Software.
+## ðŸ“„ License
+MIT License. Created by Phan Nháº­t QuÃ¢n and maintained by Vionex Software.

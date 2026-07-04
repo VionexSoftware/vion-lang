@@ -1,4 +1,4 @@
-#include <filesystem>
+﻿#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -191,11 +191,11 @@ int main(int argc, char* argv[]) {
                 "powershell -ExecutionPolicy Bypass -Command "
                 "\"try { "
                 "$current = [version]'1.0.0'; "
-                "$latestTag = (Invoke-RestMethod https://api.github.com/repos/AlexanderPhan04/vion-lang/releases/latest -ErrorAction Stop).tag_name; "
+                "$latestTag = (Invoke-RestMethod https://api.github.com/repos/VionexSoftware/vion-lang/releases/latest -ErrorAction Stop).tag_name; "
                 "$latest = [version]($latestTag -replace 'v', ''); "
                 "if ($latest -gt $current) { "
                 "  Write-Host 'New version found! Installing...'; "
-                "  irm https://raw.githubusercontent.com/AlexanderPhan04/vion-lang/main/scripts/install-online-windows.ps1 | iex "
+                "  irm https://raw.githubusercontent.com/VionexSoftware/vion-lang/main/scripts/install-online-windows.ps1 | iex "
                 "} else { "
                 "  Write-Host 'Vion is up to date!'; "
                 "} "
@@ -206,12 +206,12 @@ int main(int argc, char* argv[]) {
             );
             if (ret != 0) {
                 std::cerr << "Update failed. Check your internet connection or visit:\n";
-                std::cerr << "  https://github.com/AlexanderPhan04/vion-lang/releases\n";
+                std::cerr << "  https://github.com/VionexSoftware/vion-lang/releases\n";
                 return 1;
             }
 #else
             std::cout << "Auto-update is currently only supported on Windows.\n";
-            std::cout << "Visit https://github.com/AlexanderPhan04/vion-lang/releases to download manually.\n";
+            std::cout << "Visit https://github.com/VionexSoftware/vion-lang/releases to download manually.\n";
 #endif
             return 0;
         }

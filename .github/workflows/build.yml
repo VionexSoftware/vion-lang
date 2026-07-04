@@ -1,4 +1,4 @@
-name: Build
+﻿name: Build
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
     branches: [main]
 
 jobs:
-  # ── Build & test on every push ──────────────────────────────────────────────
+  # â”€â”€ Build & test on every push â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   build:
     name: Build (Windows)
     runs-on: windows-latest
@@ -36,7 +36,7 @@ jobs:
           path: build/Release/vion.exe
           retention-days: 7
 
-  # ── Create GitHub Release when a vX.Y.Z tag is pushed ───────────────────────
+  # â”€â”€ Create GitHub Release when a vX.Y.Z tag is pushed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   release:
     name: Release
     runs-on: windows-latest
@@ -75,7 +75,7 @@ jobs:
 
             ### Installation (Windows)
             ```powershell
-            irm https://raw.githubusercontent.com/AlexanderPhan04/vion-lang/main/scripts/install-online-windows.ps1 | iex
+            irm https://raw.githubusercontent.com/VionexSoftware/vion-lang/main/scripts/install-online-windows.ps1 | iex
             ```
 
             Or download the ZIP below and run `install-windows.ps1` manually.
