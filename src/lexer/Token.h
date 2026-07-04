@@ -88,7 +88,6 @@ inline std::string tokenTypeToString(TokenType type) {
         case TokenType::LEFT_BRACKET:  return "LEFT_BRACKET";
         case TokenType::RIGHT_BRACKET: return "RIGHT_BRACKET";
         case TokenType::COMMA:         return "COMMA";
-        case TokenType::DOT:           return "DOT";
         case TokenType::COLON:         return "COLON";
         case TokenType::PLUS:          return "PLUS";
         case TokenType::MINUS:         return "MINUS";
@@ -110,6 +109,7 @@ inline std::string tokenTypeToString(TokenType type) {
         case TokenType::GREATER_EQUAL: return "GREATER_EQUAL";
         case TokenType::LESS:          return "LESS";
         case TokenType::LESS_EQUAL:    return "LESS_EQUAL";
+        case TokenType::DOT:           return "DOT";
         case TokenType::IDENTIFIER:    return "IDENTIFIER";
         case TokenType::NUMBER:        return "NUMBER";
         case TokenType::STRING:        return "STRING";

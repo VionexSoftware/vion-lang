@@ -1,0 +1,6 @@
+let math = import "tests/cases/math.vion"
+
+print "Loaded Math Module: ", type(math)
+print "PI = ", math.PI
+print "5 + 3 = ", math.add(5, 3)
+print "10 - 4 = ", math.subtract(10, 4)

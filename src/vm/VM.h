@@ -34,6 +34,12 @@ struct CallFrame {
     int slots_base;
 };
 
+struct TryHandler {
+    int frameIndex;
+    int stackSize;
+    uint8_t* catchIp;
+};
+
 class VM {
 public:
     VM();
@@ -46,8 +52,12 @@ public:
     void defineNative(const std::string& name, NativeFn function);
 
 private:
-    std::vector<CallFrame> frames;
+    bool handleError(const std::string& message);
+    
     std::vector<Value> stack;
+    std::vector<CallFrame> frames;
+    std::vector<TryHandler> tryHandlers;
+    
     std::unordered_map<std::string, Value> globals;
 
     uint8_t readByte();

@@ -210,16 +210,28 @@ struct MatchExpr : Expr {
     std::string toString() const override { return "<match>"; }
 };
 
-// obj.method(args) — desugars to method(obj, args)
-struct MethodCallExpr : Expr {
+struct ImportExpr : Expr {
+    std::unique_ptr<Expr> modulePath;
+    ImportExpr(std::unique_ptr<Expr> modulePath, int line = 0)
+        : modulePath(std::move(modulePath)) { this->line = line; }
+    std::string toString() const override { return "import " + modulePath->toString(); }
+};
+
+struct GetExpr : Expr {
     std::unique_ptr<Expr> object;
-    std::string method;
-    std::vector<std::unique_ptr<Expr>> arguments;
-    MethodCallExpr(std::unique_ptr<Expr> object, std::string method,
-                   std::vector<std::unique_ptr<Expr>> arguments, int line = 0)
-        : object(std::move(object)), method(std::move(method)),
-          arguments(std::move(arguments)) { this->line = line; }
-    std::string toString() const override { return "(." + method + ")"; }
+    std::string name;
+    GetExpr(std::unique_ptr<Expr> object, std::string name, int line = 0)
+        : object(std::move(object)), name(std::move(name)) { this->line = line; }
+    std::string toString() const override { return "(." + name + ")"; }
+};
+
+struct SetExpr : Expr {
+    std::unique_ptr<Expr> object;
+    std::string name;
+    std::unique_ptr<Expr> value;
+    SetExpr(std::unique_ptr<Expr> object, std::string name, std::unique_ptr<Expr> value, int line = 0)
+        : object(std::move(object)), name(std::move(name)), value(std::move(value)) { this->line = line; }
+    std::string toString() const override { return "(." + name + " = ...)"; }
 };
 // Forward declare FunctionStmt for LambdaExpr
 struct FunctionStmt;

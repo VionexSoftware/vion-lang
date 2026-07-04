@@ -1,0 +1,8 @@
+let name = "Vion"
+let version = 1.0
+
+let message = "Welcome to {name} v{version}!"
+print message
+
+print "Math: 5 + 5 = {5 + 5}"
+print "Array inside string: {[1, 2, 3]}"

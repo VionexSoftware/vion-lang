@@ -31,10 +31,18 @@ enum class OpCode : uint8_t {
     OP_NOT,
     OP_NEGATE,
 
+    OP_GET_PROPERTY,
+    OP_SET_PROPERTY,
+    OP_INVOKE,
+    OP_IMPORT,
+
     // Control Flow
     OP_JUMP,
     OP_JUMP_IF_FALSE,
     OP_LOOP,         // Jump backwards
+
+    OP_TRY_BEGIN,
+    OP_TRY_END,
 
     // Functions/Closures
     OP_CALL,

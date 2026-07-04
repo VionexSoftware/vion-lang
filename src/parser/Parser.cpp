@@ -47,7 +47,6 @@ std::unique_ptr<Stmt> Parser::statement() {
     if (match(TokenType::LET))      return letStatement();
     if (match(TokenType::CONST))    return constStatement();
     if (match(TokenType::TRY))      return tryCatchStatement();
-    if (match(TokenType::IMPORT))   return importStatement();
     if (match(TokenType::PRINT))    return printStatement();
     if (match(TokenType::IF))       return ifStatement();
     if (match(TokenType::WHILE))    return whileStatement();
@@ -243,6 +242,17 @@ std::unique_ptr<Expr> Parser::assignment() {
             );
         }
 
+        // obj.prop = value
+        if (const auto* getExpr = dynamic_cast<const GetExpr*>(expr.get())) {
+            auto owned = std::unique_ptr<GetExpr>(static_cast<GetExpr*>(expr.release()));
+            return std::make_unique<SetExpr>(
+                std::move(owned->object),
+                owned->name,
+                std::move(value),
+                assignLine
+            );
+        }
+
         errorAt(equalsToken, "invalid assignment target.");
     }
 
@@ -372,109 +382,17 @@ std::unique_ptr<Expr> Parser::call() {
     auto expr = primary();
 
     while (true) {
-        // String interpolation
-    if (match(TokenType::INTERP_START)) {
-        int interpLine = previous().line;
-        std::vector<std::unique_ptr<Expr>> parts;
-        // First literal part (may be empty)
-        parts.push_back(std::make_unique<StringExpr>(previous().lexeme, interpLine));
-        // Expression + mid parts
-        parts.push_back(expression());
-        while (match(TokenType::INTERP_MID)) {
-            parts.push_back(std::make_unique<StringExpr>(previous().lexeme, interpLine));
-            parts.push_back(expression());
-        }
-        consume(TokenType::INTERP_END, "expected end of interpolated string.");
-        parts.push_back(std::make_unique<StringExpr>(previous().lexeme, interpLine));
-        return std::make_unique<InterpolatedStringExpr>(std::move(parts), interpLine);
-    }
-
-    // Match expression
-    if (match(TokenType::MATCH)) {
-        int matchLine = previous().line;
-        auto subject = expression();
-        consume(TokenType::LEFT_BRACE, "expected '{' after match subject.");
-        std::vector<MatchCase> cases;
-        while (!check(TokenType::RIGHT_BRACE) && !isAtEnd()) {
-            std::unique_ptr<Expr> pattern = nullptr;
-            if (check(TokenType::IDENTIFIER) && peek().lexeme == "_") {
-                advance(); // consume _
-            } else {
-                pattern = expression();
-            }
-            consume(TokenType::ARROW, "expected '->' in match case.");
-            auto body = expression();
-            cases.push_back(MatchCase{std::move(pattern), std::move(body)});
-            match(TokenType::COMMA); // optional comma
-        }
-        consume(TokenType::RIGHT_BRACE, "expected '}' after match cases.");
-        return std::make_unique<MatchExpr>(std::move(subject), std::move(cases), matchLine);
-    }
-
-    if (match(TokenType::LEFT_PAREN)) {
+        if (match(TokenType::LEFT_PAREN)) {
             expr = finishCall(std::move(expr));
         } else if (match(TokenType::LEFT_BRACKET)) {
-            // Index expression: expr[index]
             int bracketLine = previous().line;
             auto index = expression();
             consume(TokenType::RIGHT_BRACKET, "expected ']' after index.");
             expr = std::make_unique<IndexExpr>(std::move(expr), std::move(index), bracketLine);
         } else if (match(TokenType::DOT)) {
-            // Method call: obj.method(args) or property access: obj.key
             int dotLine = previous().line;
             const Token& prop = consume(TokenType::IDENTIFIER, "expected property name after '.'.");
-            // String interpolation
-    if (match(TokenType::INTERP_START)) {
-        int interpLine = previous().line;
-        std::vector<std::unique_ptr<Expr>> parts;
-        // First literal part (may be empty)
-        parts.push_back(std::make_unique<StringExpr>(previous().lexeme, interpLine));
-        // Expression + mid parts
-        parts.push_back(expression());
-        while (match(TokenType::INTERP_MID)) {
-            parts.push_back(std::make_unique<StringExpr>(previous().lexeme, interpLine));
-            parts.push_back(expression());
-        }
-        consume(TokenType::INTERP_END, "expected end of interpolated string.");
-        parts.push_back(std::make_unique<StringExpr>(previous().lexeme, interpLine));
-        return std::make_unique<InterpolatedStringExpr>(std::move(parts), interpLine);
-    }
-
-    // Match expression
-    if (match(TokenType::MATCH)) {
-        int matchLine = previous().line;
-        auto subject = expression();
-        consume(TokenType::LEFT_BRACE, "expected '{' after match subject.");
-        std::vector<MatchCase> cases;
-        while (!check(TokenType::RIGHT_BRACE) && !isAtEnd()) {
-            std::unique_ptr<Expr> pattern = nullptr;
-            if (check(TokenType::IDENTIFIER) && peek().lexeme == "_") {
-                advance(); // consume _
-            } else {
-                pattern = expression();
-            }
-            consume(TokenType::ARROW, "expected '->' in match case.");
-            auto body = expression();
-            cases.push_back(MatchCase{std::move(pattern), std::move(body)});
-            match(TokenType::COMMA); // optional comma
-        }
-        consume(TokenType::RIGHT_BRACE, "expected '}' after match cases.");
-        return std::make_unique<MatchExpr>(std::move(subject), std::move(cases), matchLine);
-    }
-
-    if (match(TokenType::LEFT_PAREN)) {
-                // Method call: obj.method(args)
-                std::vector<std::unique_ptr<Expr>> arguments;
-                if (!check(TokenType::RIGHT_PAREN)) {
-                    do { arguments.push_back(expression()); } while (match(TokenType::COMMA));
-                }
-                consume(TokenType::RIGHT_PAREN, "expected ')' after method arguments.");
-                expr = std::make_unique<MethodCallExpr>(std::move(expr), prop.lexeme, std::move(arguments), dotLine);
-            } else {
-                // Property access: obj.key → obj["key"]
-                auto key = std::make_unique<StringExpr>(prop.lexeme, dotLine);
-                expr = std::make_unique<IndexExpr>(std::move(expr), std::move(key), dotLine);
-            }
+            expr = std::make_unique<GetExpr>(std::move(expr), prop.lexeme, dotLine);
         } else {
             break;
         }
@@ -559,6 +477,12 @@ std::unique_ptr<Expr> Parser::primary() {
         }
         consume(TokenType::RIGHT_BRACE, "expected '}' after match cases.");
         return std::make_unique<MatchExpr>(std::move(subject), std::move(cases), matchLine);
+    }
+
+    if (match(TokenType::IMPORT)) {
+        int importLine = previous().line;
+        auto path = expression();
+        return std::make_unique<ImportExpr>(std::move(path), importLine);
     }
 
     if (match(TokenType::LEFT_PAREN)) {

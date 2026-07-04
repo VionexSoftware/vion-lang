@@ -1,0 +1,10 @@
+print "Starting safe division test..."
+
+try {
+    let result = 10 / 0
+    print "This should not run: ", result
+} catch err {
+    print "Caught an error: ", err
+}
+
+print "Program recovered and continued successfully!"

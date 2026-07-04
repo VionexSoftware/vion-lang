@@ -1,0 +1,21 @@
+let user = {"name": "Vion", "version": 0.5}
+
+print "--- Map Property Access ---"
+print user.name
+print user.version
+
+user.version = 1.0
+print user.version
+
+print "--- Array Methods ---"
+let a = [1, 2]
+a.push(3)
+print a
+print "Length: " + str(a.len())
+let last = a.pop()
+print "Popped: " + str(last)
+print a
+
+print "--- String Methods ---"
+print "hello".upper()
+print "HELLO".lower()

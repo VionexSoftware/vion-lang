@@ -8,6 +8,10 @@
 #include <fstream>
 #include <random>
 
+#include "lexer/Lexer.h"
+#include "parser/Parser.h"
+#include "compiler/Compiler.h"
+
 VM::VM() {
     defineNative("print", [](int argCount, Value* args) {
         for (int i = 0; i < argCount; ++i) {
@@ -87,6 +91,30 @@ VM::VM() {
         }
         return Value::nil();
     });
+    defineNative("str", [](int argCount, Value* args) {
+        if (argCount == 1) {
+            return Value::string(args[0].toString());
+        }
+        return Value::nil();
+    });
+
+    defineNative("upper", [](int argCount, Value* args) {
+        if (argCount == 1 && args[0].type == ValueType::STRING) {
+            std::string s = std::get<std::string>(args[0].data);
+            for (char& c : s) c = std::toupper(c);
+            return Value::string(s);
+        }
+        return Value::nil();
+    });
+
+    defineNative("lower", [](int argCount, Value* args) {
+        if (argCount == 1 && args[0].type == ValueType::STRING) {
+            std::string s = std::get<std::string>(args[0].data);
+            for (char& c : s) c = std::tolower(c);
+            return Value::string(s);
+        }
+        return Value::nil();
+    });
 }
 
 VM::~VM() {}
@@ -99,6 +127,23 @@ Value VM::pop() {
     Value value = std::move(stack.back());
     stack.pop_back();
     return value;
+}
+
+bool VM::handleError(const std::string& message) {
+    if (tryHandlers.empty()) {
+        std::cerr << "Runtime Error: " << message << "\n";
+        return false;
+    }
+    
+    TryHandler handler = tryHandlers.back();
+    tryHandlers.pop_back();
+    
+    frames.resize(handler.frameIndex + 1);
+    stack.resize(handler.stackSize);
+    frames.back().ip = handler.catchIp;
+    
+    push(Value::string(message));
+    return true;
 }
 
 uint8_t VM::readByte() {
@@ -171,8 +216,8 @@ InterpretResult VM::run() {
                 Value a = pop();
                 if (a.type == ValueType::NUMBER && b.type == ValueType::NUMBER) {
                     push(Value::number(std::get<double>(a.data) + std::get<double>(b.data)));
-                } else if (a.type == ValueType::STRING && b.type == ValueType::STRING) {
-                    push(Value::string(std::get<std::string>(a.data) + std::get<std::string>(b.data)));
+                } else if (a.type == ValueType::STRING || b.type == ValueType::STRING) {
+                    push(Value::string(a.toString() + b.toString()));
                 } else if (a.type == ValueType::ARRAY && b.type == ValueType::ARRAY) {
                     auto arrA = std::get<std::shared_ptr<VionArray>>(a.data);
                     auto arrB = std::get<std::shared_ptr<VionArray>>(b.data);
@@ -181,7 +226,7 @@ InterpretResult VM::run() {
                     newArr->elements.insert(newArr->elements.end(), arrB->elements.begin(), arrB->elements.end());
                     push(Value::array(newArr));
                 } else {
-                    std::cerr << "Runtime Error: operands must be numbers or strings or arrays.\n";
+                    std::cerr << "Runtime Error: operands must be numbers or arrays, or at least one must be a string.\n";
                     return InterpretResult::INTERPRET_RUNTIME_ERROR;
                 }
                 break;
@@ -206,8 +251,8 @@ InterpretResult VM::run() {
                 if (a.type != ValueType::NUMBER || b.type != ValueType::NUMBER) return InterpretResult::INTERPRET_RUNTIME_ERROR;
                 double denominator = std::get<double>(b.data);
                 if (denominator == 0) {
-                    std::cerr << "Runtime Error: division by zero.\n";
-                    return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                    if (!handleError("division by zero.")) return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                    break;
                 }
                 push(Value::number(std::get<double>(a.data) / denominator));
                 break;
@@ -297,6 +342,19 @@ InterpretResult VM::run() {
             case static_cast<uint8_t>(OpCode::OP_LOOP): {
                 uint16_t offset = readShort();
                 frames.back().ip -= offset;
+                break;
+            }
+            case static_cast<uint8_t>(OpCode::OP_TRY_BEGIN): {
+                uint16_t catchOffset = readShort();
+                TryHandler handler;
+                handler.frameIndex = frames.size() - 1;
+                handler.stackSize = stack.size();
+                handler.catchIp = frames.back().ip + catchOffset;
+                tryHandlers.push_back(handler);
+                break;
+            }
+            case static_cast<uint8_t>(OpCode::OP_TRY_END): {
+                tryHandlers.pop_back();
                 break;
             }
             case static_cast<uint8_t>(OpCode::OP_CLOSURE): {
@@ -410,6 +468,139 @@ InterpretResult VM::run() {
                     std::cerr << "Runtime Error: Invalid index set operation.\n";
                     return InterpretResult::INTERPRET_RUNTIME_ERROR;
                 }
+                break;
+            }
+            case static_cast<uint8_t>(OpCode::OP_GET_PROPERTY): {
+                Value name = readConstant();
+                Value receiver = pop();
+                
+                if (receiver.type == ValueType::MAP) {
+                    auto map = std::get<std::shared_ptr<VionMap>>(receiver.data);
+                    auto it = map->entries.find(name.toString());
+                    if (it != map->entries.end()) {
+                        push(it->second);
+                    } else {
+                        push(Value::nil());
+                    }
+                } else {
+                    std::cerr << "Runtime Error: Only maps support property access.\n";
+                    return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                }
+                break;
+            }
+            case static_cast<uint8_t>(OpCode::OP_SET_PROPERTY): {
+                Value name = readConstant();
+                Value value = pop();
+                Value receiver = pop();
+                
+                if (receiver.type == ValueType::MAP) {
+                    auto map = std::get<std::shared_ptr<VionMap>>(receiver.data);
+                    map->entries[name.toString()] = value;
+                    push(value);
+                } else {
+                    std::cerr << "Runtime Error: Only maps support property assignment.\n";
+                    return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                }
+                break;
+            }
+            case static_cast<uint8_t>(OpCode::OP_INVOKE): {
+                Value methodName = readConstant();
+                int argCount = readByte();
+                Value receiver = stack[stack.size() - argCount - 1];
+                
+                Value methodVal;
+                bool found = false;
+
+                if (receiver.type == ValueType::MAP) {
+                    auto map = std::get<std::shared_ptr<VionMap>>(receiver.data);
+                    auto it = map->entries.find(methodName.toString());
+                    if (it != map->entries.end()) {
+                        methodVal = it->second;
+                        found = true;
+                    }
+                }
+
+                if (!found && globals.find(methodName.toString()) != globals.end()) {
+                    methodVal = globals[methodName.toString()];
+                    found = true;
+                }
+                
+                if (!found) {
+                    std::cerr << "Runtime Error: method '" << methodName.toString() << "' not found.\n";
+                    return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                }
+
+                if (methodVal.type == ValueType::BYTECODE_FUNCTION) {
+                    auto function = std::get<std::shared_ptr<BytecodeFunction>>(methodVal.data);
+                    if (argCount != function->arity) {
+                        std::cerr << "Runtime Error: Expected " << function->arity << " arguments but got " << argCount << ".\n";
+                        return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                    }
+                    // Replace receiver with function so OP_CALL semantics hold
+                    stack[stack.size() - argCount - 1] = methodVal;
+
+                    CallFrame frame;
+                    frame.function = function;
+                    frame.ip = function->chunk->code.data();
+                    frame.slots_base = stack.size() - argCount - 1;
+                    frames.push_back(frame);
+                } else if (methodVal.type == ValueType::NATIVE_FUNCTION) {
+                    auto nativeFunc = std::get<std::shared_ptr<VMNativeFunction>>(methodVal.data);
+                    Value* args = stack.data() + stack.size() - argCount - 1;
+                    Value result = nativeFunc->function(argCount + 1, args);
+                    
+                    stack.erase(stack.end() - argCount - 1, stack.end());
+                    push(result);
+                } else {
+                    std::cerr << "Runtime Error: can only invoke functions.\n";
+                    return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                }
+                break;
+            }
+            case static_cast<uint8_t>(OpCode::OP_IMPORT): {
+                Value modulePath = pop();
+                if (modulePath.type != ValueType::STRING) {
+                    std::cerr << "Runtime Error: import path must be a string.\n";
+                    return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                }
+                std::string path = std::get<std::string>(modulePath.data);
+                
+                std::ifstream file(path);
+                if (!file.is_open()) {
+                    std::cerr << "Runtime Error: Cannot open module file '" << path << "'.\n";
+                    return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                }
+                std::stringstream buffer;
+                buffer << file.rdbuf();
+                std::string source = buffer.str();
+                
+                Lexer lexer(source);
+                std::vector<Token> tokens = lexer.scanTokens();
+                Parser parser(std::move(tokens));
+                Program program = parser.parse();
+                
+                Compiler compiler(nullptr, FunctionType::TYPE_SCRIPT);
+                auto function = compiler.compile(program);
+                
+                if (!function) {
+                    std::cerr << "Runtime Error: Failed to compile module '" << path << "'.\n";
+                    return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                }
+                
+                VM moduleVM;
+                InterpretResult result = moduleVM.interpret(function);
+                if (result != InterpretResult::INTERPRET_OK) {
+                    std::cerr << "Runtime Error: Module execution failed '" << path << "'.\n";
+                    return result;
+                }
+                
+                auto moduleExports = std::make_shared<VionMap>();
+                for (const auto& pair : moduleVM.globals) {
+                    if (pair.second.type != ValueType::NATIVE_FUNCTION) {
+                        moduleExports->entries[pair.first] = pair.second;
+                    }
+                }
+                push(Value::map(moduleExports));
                 break;
             }
             default:

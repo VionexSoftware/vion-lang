@@ -274,6 +274,24 @@ void Compiler::compileStatement(const Stmt& stmt) {
             emitByte(static_cast<uint8_t>(OpCode::OP_NIL));
         }
         emitByte(static_cast<uint8_t>(OpCode::OP_RETURN));
+    } else if (const auto* tryStmt = dynamic_cast<const TryCatchStmt*>(&stmt)) {
+        int tryJump = emitJump(static_cast<uint8_t>(OpCode::OP_TRY_BEGIN));
+        
+        compileStatement(*tryStmt->tryBody);
+        
+        emitByte(static_cast<uint8_t>(OpCode::OP_TRY_END));
+        int endJump = emitJump(static_cast<uint8_t>(OpCode::OP_JUMP));
+        
+        patchJump(tryJump); // This is the catch target!
+        
+        beginScope();
+        addLocal(tryStmt->catchVar);
+        // The VM will push the error message string onto the stack,
+        // which matches the local variable 'catchVar' we just declared!
+        compileStatement(*tryStmt->catchBody);
+        endScope();
+        
+        patchJump(endJump);
     }
 }
 
@@ -353,11 +371,21 @@ void Compiler::compileExpression(const Expr& expr) {
             emitBytes(static_cast<uint8_t>(OpCode::OP_SET_GLOBAL), static_cast<uint8_t>(index));
         }
     } else if (const auto* callExpr = dynamic_cast<const CallExpr*>(&expr)) {
-        compileExpression(*callExpr->callee);
-        for (const auto& arg : callExpr->arguments) {
-            compileExpression(*arg);
+        if (const auto* getExpr = dynamic_cast<const GetExpr*>(callExpr->callee.get())) {
+            compileExpression(*getExpr->object);
+            for (const auto& arg : callExpr->arguments) {
+                compileExpression(*arg);
+            }
+            int nameIndex = currentChunk()->addConstant(Value::string(getExpr->name));
+            emitBytes(static_cast<uint8_t>(OpCode::OP_INVOKE), static_cast<uint8_t>(nameIndex));
+            emitByte(static_cast<uint8_t>(callExpr->arguments.size()));
+        } else {
+            compileExpression(*callExpr->callee);
+            for (const auto& arg : callExpr->arguments) {
+                compileExpression(*arg);
+            }
+            emitBytes(static_cast<uint8_t>(OpCode::OP_CALL), static_cast<uint8_t>(callExpr->arguments.size()));
         }
-        emitBytes(static_cast<uint8_t>(OpCode::OP_CALL), static_cast<uint8_t>(callExpr->arguments.size()));
     } else if (const auto* arrayExpr = dynamic_cast<const ArrayExpr*>(&expr)) {
         for (const auto& elem : arrayExpr->elements) {
             compileExpression(*elem);
@@ -379,5 +407,27 @@ void Compiler::compileExpression(const Expr& expr) {
         compileExpression(*indexAssignExpr->index);
         compileExpression(*indexAssignExpr->value);
         emitByte(static_cast<uint8_t>(OpCode::OP_INDEX_SET));
+    } else if (const auto* getExpr = dynamic_cast<const GetExpr*>(&expr)) {
+        compileExpression(*getExpr->object);
+        int nameIndex = currentChunk()->addConstant(Value::string(getExpr->name));
+        emitBytes(static_cast<uint8_t>(OpCode::OP_GET_PROPERTY), static_cast<uint8_t>(nameIndex));
+    } else if (const auto* setExpr = dynamic_cast<const SetExpr*>(&expr)) {
+        compileExpression(*setExpr->object);
+        compileExpression(*setExpr->value);
+        int nameIndex = currentChunk()->addConstant(Value::string(setExpr->name));
+        emitBytes(static_cast<uint8_t>(OpCode::OP_SET_PROPERTY), static_cast<uint8_t>(nameIndex));
+    } else if (const auto* importExpr = dynamic_cast<const ImportExpr*>(&expr)) {
+        compileExpression(*importExpr->modulePath);
+        emitByte(static_cast<uint8_t>(OpCode::OP_IMPORT));
+    } else if (const auto* interpExpr = dynamic_cast<const InterpolatedStringExpr*>(&expr)) {
+        if (!interpExpr->parts.empty()) {
+            compileExpression(*interpExpr->parts[0]);
+            for (size_t i = 1; i < interpExpr->parts.size(); ++i) {
+                compileExpression(*interpExpr->parts[i]);
+                emitByte(static_cast<uint8_t>(OpCode::OP_ADD));
+            }
+        } else {
+            emitConstant(Value::string(""));
+        }
     }
 }

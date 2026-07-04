@@ -1,0 +1,9 @@
+let PI = 3.14159
+
+fn add(a, b) {
+    return a + b
+}
+
+fn subtract(a, b) {
+    return a - b
+}
