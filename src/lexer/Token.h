@@ -78,6 +78,7 @@ inline std::string tokenTypeToString(TokenType type) {
         case TokenType::RIGHT_BRACKET: return "RIGHT_BRACKET";
         case TokenType::COMMA:         return "COMMA";
         case TokenType::DOT:           return "DOT";
+        case TokenType::COLON:         return "COLON";
         case TokenType::PLUS:          return "PLUS";
         case TokenType::MINUS:         return "MINUS";
         case TokenType::STAR:          return "STAR";
