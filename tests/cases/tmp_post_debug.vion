@@ -1,0 +1,27 @@
+let payload = {
+    "title": "Vion Test",
+    "body": "Hello from Vion!",
+    "userId": 1
+}
+
+let body_str = json_stringify(payload)
+print "Body JSON:", body_str
+print "Body length:", len(body_str)
+
+let options = {
+    "method": "POST",
+    "headers": {
+        "Content-type": "application/json; charset=UTF-8"
+    },
+    "body": body_str
+}
+
+let response = http_request("https://jsonplaceholder.typicode.com/posts", options)
+print "Response:", response
+
+if response != nil {
+    let result = json_parse(response)
+    print "ID:", result.id
+    print "Title:", result.title
+    print "Body:", result.body
+}

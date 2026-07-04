@@ -1,0 +1,21 @@
+// Simple test: POST to jsonplaceholder and just echo raw response
+let payload = {
+    "title": "Vion Test",
+    "body": "Hello from Vion!",
+    "userId": 1
+}
+
+let body_str = json_stringify(payload)
+print "Request body:", body_str
+
+let options = {
+    "method": "POST",
+    "headers": {
+        "Content-type": "application/json; charset=UTF-8"
+    },
+    "body": body_str
+}
+
+let raw = http_request("https://jsonplaceholder.typicode.com/posts", options)
+print "Raw response:"
+print raw

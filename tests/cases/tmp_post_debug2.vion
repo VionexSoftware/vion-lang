@@ -1,0 +1,16 @@
+// Debug: test temp file + curl command manually
+let payload = {"title": "test", "body": "hello", "userId": 1}
+let body_str = json_stringify(payload)
+print "Body:", body_str
+
+// Write body to temp file manually  
+file_write("C:/Users/quann/AppData/Local/Temp/vion_debug.json", body_str)
+
+// Read it back to verify
+let content = file_read("C:/Users/quann/AppData/Local/Temp/vion_debug.json")
+print "File content:", content
+
+// Now try http_request
+let opts = {"method": "POST", "headers": {"Content-type": "application/json"}, "body": body_str}
+let res = http_request("https://jsonplaceholder.typicode.com/posts", opts)
+print "Response:", res

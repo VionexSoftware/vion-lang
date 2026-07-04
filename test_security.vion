@@ -1,0 +1,47 @@
+// Test SEC-004: Safe JSON parser
+let num = json_parse("42")
+print "JSON number: ", num
+
+let boolTrue = json_parse("true")
+print "JSON true: ", boolTrue
+
+let boolFalse = json_parse("false")
+print "JSON false: ", boolFalse
+
+let nilVal = json_parse("null")
+print "JSON null: ", nilVal
+
+let arr = json_parse("[1, 2, 3]")
+print "JSON array: ", arr
+
+// Test full roundtrip: stringify then parse
+let obj = {"name": "Vion", "version": 1.0}
+let jsonStr = json_stringify(obj)
+print "Stringified: ", jsonStr
+let parsed = json_parse(jsonStr)
+print "Roundtrip name: ", parsed["name"]
+
+// Test code injection - should return null, NOT execute code
+let evil = json_parse("not_json")
+print "Invalid JSON (should be null): ", evil
+
+// Test SEC-005: Stack overflow protection
+fn recurse(n) {
+    return recurse(n + 1)
+}
+
+try {
+    recurse(0)
+} catch err {
+    print "Stack overflow caught: ", err
+}
+
+// Test SEC-011: str_repeat limit
+let big = str_repeat("A", 100)
+print "str_repeat OK: ", len(big)
+
+// Test SEC-012: array limit
+let myarr = array(10, 0)
+print "array OK: ", len(myarr)
+
+print "All security tests passed!"

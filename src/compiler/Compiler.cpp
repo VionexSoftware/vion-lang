@@ -137,10 +137,15 @@ void Compiler::compileStatement(const Stmt& stmt) {
         compileExpression(*exprStmt->value);
         emitByte(static_cast<uint8_t>(OpCode::OP_POP));
     } else if (const auto* printStmt = dynamic_cast<const PrintStmt*>(&stmt)) {
+        // Compile `print a, b, c` as a call to the native print() function.
+        // This ensures all values print on a single line with one trailing newline.
+        int printGlobal = currentChunk()->addConstant(Value::string("print"));
+        emitBytes(static_cast<uint8_t>(OpCode::OP_GET_GLOBAL), static_cast<uint8_t>(printGlobal));
         for (const auto& expr : printStmt->values) {
             compileExpression(*expr);
-            emitByte(static_cast<uint8_t>(OpCode::OP_PRINT));
         }
+        emitBytes(static_cast<uint8_t>(OpCode::OP_CALL), static_cast<uint8_t>(printStmt->values.size()));
+        emitByte(static_cast<uint8_t>(OpCode::OP_POP)); // discard nil return
     } else if (const auto* letStmt = dynamic_cast<const LetStmt*>(&stmt)) {
         if (letStmt->value) {
             compileExpression(*letStmt->value);

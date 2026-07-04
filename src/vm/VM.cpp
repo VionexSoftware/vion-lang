@@ -18,6 +18,12 @@
 #include <cmath>
 #include <regex>
 
+#ifdef _WIN32
+#include <process.h>   // _getpid
+#else
+#include <unistd.h>    // getpid
+#endif
+
 #include "lexer/Lexer.h"
 #include "parser/Parser.h"
 #include "compiler/Compiler.h"
@@ -39,14 +45,55 @@ static std::string vion_runSubprocess(const std::string& cmd) {
     return result;
 }
 
-// Escape a SQL string for embedding in a shell-quoted command argument
+// Escape a SQL string for embedding in a shell-quoted command argument.
+// Must handle BOTH quote-breaking AND shell metacharacters.
 static std::string vion_escapeSql(const std::string& sql) {
     std::string out;
     out.reserve(sql.size() + 8);
     for (char c : sql) {
         if (c == '"')       out += "\\\"";
         else if (c == '\\') out += "\\\\";
+        else if (c == '`')  out += "\\`";
+        else if (c == '$')  out += "\\$";
+        else if (c == '!')  out += "\\!";
         else                out += c;
+    }
+    return out;
+}
+
+// Sanitize a string for safe embedding in a shell command between double quotes.
+// Strips characters that could break out of the quoting context.
+static std::string vion_shellSanitize(const std::string& input) {
+    std::string out;
+    out.reserve(input.size());
+    for (char c : input) {
+        if (c == '"' || c == '\\' || c == '`' || c == '$' ||
+            c == '!' || c == '&' || c == '|' ||
+            c == '\n' || c == '\r' || c == '\0') continue;
+        out += c;
+    }
+    return out;
+}
+
+// Escape a string for embedding as a body payload in a shell command.
+// Unlike vion_shellSanitize, this PRESERVES important chars like quotes
+// by escaping them, so JSON content remains valid.
+static std::string vion_shellEscapeBody(const std::string& input) {
+    std::string out;
+    out.reserve(input.size() + 16);
+    for (char c : input) {
+        // Strip truly dangerous shell chars
+        if (c == '`' || c == '$' || c == '!' ||
+            c == '|' || c == ';' || c == '\n' || c == '\r' || c == '\0') continue;
+#ifdef _WIN32
+        // cmd.exe: escape " as \" inside double-quoted strings for curl
+        if (c == '"')  { out += "\\\""; continue; }
+#else
+        if (c == '"')  { out += "\\\""; continue; }
+        if (c == '\\') { out += "\\\\"; continue; }
+        if (c == '&')  continue;
+#endif
+        out += c;
     }
     return out;
 }
@@ -189,6 +236,100 @@ static void vion_parseMysqlDsn(const std::string& dsn, VionDB& conn) {
     if (conn.host.empty()) conn.host = "127.0.0.1";
 }
 
+// ── Safe JSON Parser ──────────────────────────────────────────────────────
+// Recursive-descent parser producing Vion Values WITHOUT executing code.
+
+static void json_skipWS(const std::string& s, size_t& p) {
+    while (p < s.size() && (s[p]==' '||s[p]=='\t'||s[p]=='\n'||s[p]=='\r')) p++;
+}
+
+static std::string json_parseStr(const std::string& s, size_t& p) {
+    if (p >= s.size() || s[p] != '"') throw std::runtime_error("json: expected '\"'");
+    p++;
+    std::string r;
+    while (p < s.size() && s[p] != '"') {
+        if (s[p] == '\\') {
+            p++;
+            if (p >= s.size()) throw std::runtime_error("json: unexpected end in string");
+            switch (s[p]) {
+                case '"': r += '"'; break; case '\\': r += '\\'; break;
+                case '/': r += '/'; break; case 'b': r += '\b'; break;
+                case 'f': r += '\f'; break; case 'n': r += '\n'; break;
+                case 'r': r += '\r'; break; case 't': r += '\t'; break;
+                case 'u': {
+                    if (p + 4 >= s.size()) throw std::runtime_error("json: bad \\u escape");
+                    unsigned cp = std::stoul(s.substr(p+1, 4), nullptr, 16);
+                    if (cp < 0x80) r += (char)cp;
+                    else if (cp < 0x800) { r += (char)(0xC0|(cp>>6)); r += (char)(0x80|(cp&0x3F)); }
+                    else { r += (char)(0xE0|(cp>>12)); r += (char)(0x80|((cp>>6)&0x3F)); r += (char)(0x80|(cp&0x3F)); }
+                    p += 4; break;
+                }
+                default: r += s[p]; break;
+            }
+        } else { r += s[p]; }
+        p++;
+    }
+    if (p >= s.size()) throw std::runtime_error("json: unterminated string");
+    p++;
+    return r;
+}
+
+static Value json_parseValue(const std::string& s, size_t& p);
+
+static Value json_parseValue(const std::string& s, size_t& p) {
+    json_skipWS(s, p);
+    if (p >= s.size()) throw std::runtime_error("json: unexpected end");
+    char c = s[p];
+    if (c == '"') return Value::string(json_parseStr(s, p));
+    if (c == '-' || (c >= '0' && c <= '9')) {
+        size_t start = p;
+        if (c == '-') p++;
+        while (p < s.size() && s[p] >= '0' && s[p] <= '9') p++;
+        if (p < s.size() && s[p] == '.') { p++; while (p < s.size() && s[p] >= '0' && s[p] <= '9') p++; }
+        if (p < s.size() && (s[p]=='e'||s[p]=='E')) { p++; if (p<s.size()&&(s[p]=='+'||s[p]=='-')) p++; while (p<s.size()&&s[p]>='0'&&s[p]<='9') p++; }
+        return Value::number(std::stod(s.substr(start, p - start)));
+    }
+    if (s.compare(p, 4, "true") == 0) { p += 4; return Value::boolean(true); }
+    if (s.compare(p, 5, "false") == 0) { p += 5; return Value::boolean(false); }
+    if (s.compare(p, 4, "null") == 0) { p += 4; return Value::nil(); }
+    if (c == '[') {
+        p++;
+        auto arr = std::make_shared<VionArray>();
+        json_skipWS(s, p);
+        if (p < s.size() && s[p] == ']') { p++; return Value::array(arr); }
+        for (;;) {
+            arr->elements.push_back(json_parseValue(s, p));
+            json_skipWS(s, p);
+            if (p >= s.size()) throw std::runtime_error("json: unterminated array");
+            if (s[p] == ']') { p++; break; }
+            if (s[p] != ',') throw std::runtime_error("json: expected ','");
+            p++;
+        }
+        return Value::array(arr);
+    }
+    if (c == '{') {
+        p++;
+        auto m = std::make_shared<VionMap>();
+        json_skipWS(s, p);
+        if (p < s.size() && s[p] == '}') { p++; return Value::map(m); }
+        for (;;) {
+            json_skipWS(s, p);
+            std::string key = json_parseStr(s, p);
+            json_skipWS(s, p);
+            if (p >= s.size() || s[p] != ':') throw std::runtime_error("json: expected ':'");
+            p++;
+            m->entries[key] = json_parseValue(s, p);
+            json_skipWS(s, p);
+            if (p >= s.size()) throw std::runtime_error("json: unterminated object");
+            if (s[p] == '}') { p++; break; }
+            if (s[p] != ',') throw std::runtime_error("json: expected ','");
+            p++;
+        }
+        return Value::map(m);
+    }
+    throw std::runtime_error("json: unexpected char '" + std::string(1, c) + "'");
+}
+
 VM::VM() {
 
     defineNative("print", [](int argCount, Value* args) {
@@ -260,7 +401,11 @@ VM::VM() {
         if (argCount != 1 || args[0].type != ValueType::STRING) return Value::nil();
         std::string url = std::get<std::string>(args[0].data);
         
-        std::string command = "curl -s \"" + url + "\"";
+#ifdef _WIN32
+        std::string command = "curl.exe -s \"" + vion_shellSanitize(url) + "\"";
+#else
+        std::string command = "curl -s \"" + vion_shellSanitize(url) + "\"";
+#endif
         std::array<char, 128> buffer;
         std::string result;
 #ifdef _WIN32
@@ -285,35 +430,43 @@ VM::VM() {
         
         std::string method = "GET";
         if (optionsMap->entries.count("method") && optionsMap->entries["method"].type == ValueType::STRING) {
-            method = std::get<std::string>(optionsMap->entries["method"].data);
+            std::string m = std::get<std::string>(optionsMap->entries["method"].data);
+            // Whitelist valid HTTP methods to prevent injection
+            if (m=="GET"||m=="POST"||m=="PUT"||m=="PATCH"||m=="DELETE"||m=="HEAD"||m=="OPTIONS") method = m;
         }
         
+#ifdef _WIN32
+        std::string command = "curl.exe -s -X " + method + " ";
+#else
         std::string command = "curl -s -X " + method + " ";
+#endif
         
         if (optionsMap->entries.count("headers") && optionsMap->entries["headers"].type == ValueType::MAP) {
             auto headersMap = std::get<std::shared_ptr<VionMap>>(optionsMap->entries["headers"].data);
             for (const auto& pair : headersMap->entries) {
                 if (pair.second.type == ValueType::STRING) {
                     std::string headerVal = std::get<std::string>(pair.second.data);
-                    command += "-H \"" + pair.first + ": " + headerVal + "\" ";
+                    command += "-H \"" + vion_shellSanitize(pair.first) + ": " + vion_shellSanitize(headerVal) + "\" ";
                 }
             }
         }
         
-        std::string tempFile = ".vion_tmp_body.json";
-        bool hasBody = false;
+        // Write body to temp file — avoids shell quoting issues on Windows
+        std::string tempFile;
         if (optionsMap->entries.count("body") && optionsMap->entries["body"].type == ValueType::STRING) {
             std::string body = std::get<std::string>(optionsMap->entries["body"].data);
-            std::ofstream file(tempFile);
-            if (file.is_open()) {
-                file << body;
-                file.close();
+            auto tempDir = std::filesystem::temp_directory_path();
+            tempFile = (tempDir / ".vion_http_body.json").string();
+            std::ofstream f(tempFile, std::ios::binary);
+            if (f.is_open()) {
+                f << body;
+                f.close();
+                // curl reads file via @path — no quotes around path on Windows cmd.exe
                 command += "-d @" + tempFile + " ";
-                hasBody = true;
             }
         }
         
-        command += "\"" + url + "\"";
+        command += "\"" + vion_shellSanitize(url) + "\"";
         
         std::array<char, 128> buffer;
         std::string result;
@@ -328,8 +481,9 @@ VM::VM() {
             }
         }
         
-        if (hasBody) {
-            std::filesystem::remove(tempFile);
+        // Clean up temp file
+        if (!tempFile.empty()) {
+            try { std::filesystem::remove(tempFile); } catch (...) {}
         }
         
         return Value::string(result);
@@ -340,20 +494,19 @@ VM::VM() {
         return Value::string(args[0].toJsonString());
     });
 
-    defineNative("json_parse", [](int argCount, Value* args) {
+    defineNative("json_parse", [](int argCount, Value* args) -> Value {
         if (argCount != 1 || args[0].type != ValueType::STRING) return Value::nil();
         std::string jsonStr = std::get<std::string>(args[0].data);
-        std::string source = "let __json = " + jsonStr;
-        Lexer lexer(source);
-        auto tokens = lexer.scanTokens();
-        Parser parser(std::move(tokens));
-        auto program = parser.parse();
-        Compiler compiler(nullptr, FunctionType::TYPE_SCRIPT);
-        auto function = compiler.compile(program);
-        if (!function) return Value::nil();
-        VM jsonVM;
-        jsonVM.interpret(function);
-        return jsonVM.globals["__json"];
+        try {
+            size_t pos = 0;
+            Value result = json_parseValue(jsonStr, pos);
+            json_skipWS(jsonStr, pos);
+            if (pos != jsonStr.size()) throw std::runtime_error("json: trailing content");
+            return result;
+        } catch (const std::exception& e) {
+            std::cerr << "json_parse error: " << e.what() << "\n";
+            return Value::nil();
+        }
     });
 
     defineNative("to_upper", [](int argCount, Value* args) {
@@ -412,6 +565,8 @@ VM::VM() {
     defineNative("array", [](int argCount, Value* args) {
         if (argCount == 2 && args[0].type == ValueType::NUMBER) {
             int size = static_cast<int>(std::get<double>(args[0].data));
+            if (size < 0) size = 0;
+            if (size > 10000000) { std::cerr << "array: size exceeds limit (10M)\n"; return Value::nil(); }
             auto arr = std::make_shared<VionArray>();
             for (int i = 0; i < size; ++i) {
                 arr->elements.push_back(args[1]);
@@ -430,7 +585,7 @@ VM::VM() {
     defineNative("upper", [](int argCount, Value* args) {
         if (argCount == 1 && args[0].type == ValueType::STRING) {
             std::string s = std::get<std::string>(args[0].data);
-            for (char& c : s) c = std::toupper(c);
+            for (char& c : s) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
             return Value::string(s);
         }
         return Value::nil();
@@ -439,7 +594,7 @@ VM::VM() {
     defineNative("lower", [](int argCount, Value* args) {
         if (argCount == 1 && args[0].type == ValueType::STRING) {
             std::string s = std::get<std::string>(args[0].data);
-            for (char& c : s) c = std::tolower(c);
+            for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
             return Value::string(s);
         }
         return Value::nil();
@@ -858,6 +1013,8 @@ VM::VM() {
         if (n!=2||a[0].type!=ValueType::STRING||a[1].type!=ValueType::NUMBER) return Value::nil();
         std::string s=std::get<std::string>(a[0].data);
         int times=(int)std::get<double>(a[1].data);
+        if (times < 0) times = 0;
+        if ((long long)s.size() * times > 100000000LL) { std::cerr << "str_repeat: result exceeds limit (100MB)\n"; return Value::nil(); }
         std::string result; result.reserve(s.size()*std::max(0,times));
         for(int i=0;i<times;i++) result+=s;
         return Value::string(result);
@@ -1255,6 +1412,9 @@ void VM::push(Value value) {
 }
 
 Value VM::pop() {
+    if (stack.empty()) {
+        throw std::runtime_error("Internal error: stack underflow.");
+    }
     Value value = std::move(stack.back());
     stack.pop_back();
     return value;
@@ -1583,6 +1743,10 @@ InterpretResult VM::run(int targetDepth) {
             }
             case static_cast<uint8_t>(OpCode::OP_CALL): {
                 int argCount = readByte();
+                if (frames.size() >= 1024) {
+                    if (!handleError("Stack overflow: maximum call depth (1024) exceeded.")) return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                    break;
+                }
                 Value callee = stack[stack.size() - 1 - argCount];
                 if (callee.type == ValueType::BYTECODE_FUNCTION) {
                     auto function = std::get<std::shared_ptr<BytecodeFunction>>(callee.data);
@@ -1890,8 +2054,26 @@ InterpretResult VM::run(int targetDepth) {
                 }
                 std::string absPath = std::filesystem::absolute(importPath).string();
                 
+                // Module cache — avoid re-executing already-imported modules
+                static std::unordered_map<std::string, Value> moduleCache;
+                // Circular import detection
+                static std::unordered_set<std::string> modulesLoading;
+                
+                auto cached = moduleCache.find(absPath);
+                if (cached != moduleCache.end()) {
+                    push(cached->second);
+                    break;
+                }
+                
+                if (modulesLoading.count(absPath)) {
+                    if (!handleError("Circular import detected: '" + absPath + "'.")) return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                    break;
+                }
+                modulesLoading.insert(absPath);
+                
                 std::ifstream file(absPath);
                 if (!file.is_open()) {
+                    modulesLoading.erase(absPath);
                     if (!handleError("Cannot open module file '" + absPath + "'.")) return InterpretResult::INTERPRET_RUNTIME_ERROR;
                     break;
                 }
@@ -1908,12 +2090,14 @@ InterpretResult VM::run(int targetDepth) {
                 auto function = compiler.compile(program);
                 
                 if (!function) {
+                    modulesLoading.erase(absPath);
                     if (!handleError("Failed to compile module '" + absPath + "'.")) return InterpretResult::INTERPRET_RUNTIME_ERROR;
                     break;
                 }
                 
                 VM moduleVM;
                 InterpretResult result = moduleVM.interpret(function, absPath);
+                modulesLoading.erase(absPath);
                 if (result != InterpretResult::INTERPRET_OK) {
                     if (!handleError("Module execution failed '" + absPath + "'.")) return InterpretResult::INTERPRET_RUNTIME_ERROR;
                     break;
@@ -1925,7 +2109,9 @@ InterpretResult VM::run(int targetDepth) {
                         moduleExports->entries[pair.first] = pair.second;
                     }
                 }
-                push(Value::map(moduleExports));
+                Value exportVal = Value::map(moduleExports);
+                moduleCache[absPath] = exportVal;
+                push(exportVal);
                 break;
             }
             default:
