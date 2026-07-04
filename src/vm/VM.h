@@ -13,18 +13,38 @@ enum class InterpretResult {
     INTERPRET_RUNTIME_ERROR
 };
 
+#include <memory>
+
+struct BytecodeFunction : public GCObject {
+    int arity = 0;
+    std::shared_ptr<Chunk> chunk;
+    std::string name;
+    
+    BytecodeFunction() {
+        chunk = std::make_shared<Chunk>();
+    }
+
+    void trace(std::vector<std::shared_ptr<GCObject>>& children) const override {}
+    void breakCycles() override { chunk.reset(); }
+};
+
+struct CallFrame {
+    std::shared_ptr<BytecodeFunction> function;
+    uint8_t* ip;
+    int slots_base;
+};
+
 class VM {
 public:
     VM();
     ~VM();
 
-    InterpretResult interpret(Chunk* chunk);
+    InterpretResult interpret(std::shared_ptr<BytecodeFunction> function);
     void push(Value value);
     Value pop();
 
 private:
-    Chunk* chunk;
-    uint8_t* ip;
+    std::vector<CallFrame> frames;
     std::vector<Value> stack;
     std::unordered_map<std::string, Value> globals;
 

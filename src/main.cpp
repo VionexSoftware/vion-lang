@@ -113,11 +113,11 @@ static void printAst(const std::string& source) {
 static void runProgram(const std::string& source, const std::string& dir = "") {
     Program program = parseProgram(source);
     
-    Chunk chunk;
-    Compiler compiler;
-    if (compiler.compile(program, &chunk)) {
+    Compiler compiler(nullptr, FunctionType::TYPE_SCRIPT);
+    auto function = compiler.compile(program);
+    if (function) {
         VM vm;
-        vm.interpret(&chunk);
+        vm.interpret(function);
     } else {
         std::cerr << "Compile Error\n";
     }

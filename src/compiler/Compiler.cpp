@@ -1,22 +1,38 @@
 #include "compiler/Compiler.h"
 
-Compiler::Compiler() {
-    compilingChunk = nullptr;
+Compiler::Compiler(Compiler* enclosing, FunctionType type) 
+    : enclosing(enclosing), type(type), scopeDepth(0) {
+    function = std::make_shared<BytecodeFunction>();
+    if (type != FunctionType::TYPE_SCRIPT) {
+        function->name = "<fn>"; // Real name will be set later
+    }
+    
+    // Reserve slot 0 for the function itself
+    Local local;
+    local.depth = 0;
+    local.name = (type == FunctionType::TYPE_FUNCTION) ? function->name : "";
+    locals.push_back(local);
 }
 
-bool Compiler::compile(const Program& program, Chunk* chunk) {
-    compilingChunk = chunk;
-    
+Chunk* Compiler::currentChunk() {
+    return function->chunk.get();
+}
+
+std::shared_ptr<BytecodeFunction> Compiler::compile(const Program& program) {
     for (const auto& stmt : program.statements) {
         compileStatement(*stmt);
     }
-    
+    return endCompiler();
+}
+
+std::shared_ptr<BytecodeFunction> Compiler::endCompiler() {
+    emitByte(static_cast<uint8_t>(OpCode::OP_NIL));
     emitByte(static_cast<uint8_t>(OpCode::OP_RETURN));
-    return true;
+    return function;
 }
 
 void Compiler::emitByte(uint8_t byte) {
-    compilingChunk->write(byte, 0); // TODO: Line numbers
+    currentChunk()->write(byte, 0); // TODO: Line numbers
 }
 
 void Compiler::emitBytes(uint8_t byte1, uint8_t byte2) {
@@ -25,7 +41,7 @@ void Compiler::emitBytes(uint8_t byte1, uint8_t byte2) {
 }
 
 void Compiler::emitConstant(Value value) {
-    int index = compilingChunk->addConstant(value);
+    int index = currentChunk()->addConstant(value);
     emitBytes(static_cast<uint8_t>(OpCode::OP_CONSTANT), static_cast<uint8_t>(index));
 }
 
@@ -33,20 +49,46 @@ int Compiler::emitJump(uint8_t instruction) {
     emitByte(instruction);
     emitByte(0xff);
     emitByte(0xff);
-    return static_cast<int>(compilingChunk->code.size()) - 2;
+    return static_cast<int>(currentChunk()->code.size()) - 2;
 }
 
 void Compiler::patchJump(int offset) {
-    int jump = static_cast<int>(compilingChunk->code.size()) - offset - 2;
-    compilingChunk->code[offset] = (jump >> 8) & 0xff;
-    compilingChunk->code[offset + 1] = jump & 0xff;
+    int jump = static_cast<int>(currentChunk()->code.size()) - offset - 2;
+    currentChunk()->code[offset] = (jump >> 8) & 0xff;
+    currentChunk()->code[offset + 1] = jump & 0xff;
 }
 
 void Compiler::emitLoop(int loopStart) {
     emitByte(static_cast<uint8_t>(OpCode::OP_LOOP));
-    int offset = static_cast<int>(compilingChunk->code.size()) - loopStart + 2;
+    int offset = static_cast<int>(currentChunk()->code.size()) - loopStart + 2;
     emitByte((offset >> 8) & 0xff);
     emitByte(offset & 0xff);
+}
+
+void Compiler::beginScope() {
+    scopeDepth++;
+}
+
+void Compiler::endScope() {
+    scopeDepth--;
+    // Pop local variables from stack
+    while (!locals.empty() && locals.back().depth > scopeDepth) {
+        emitByte(static_cast<uint8_t>(OpCode::OP_POP));
+        locals.pop_back();
+    }
+}
+
+void Compiler::addLocal(const std::string& name) {
+    locals.push_back({name, scopeDepth});
+}
+
+int Compiler::resolveLocal(const std::string& name) {
+    for (int i = locals.size() - 1; i >= 0; i--) {
+        if (locals[i].name == name) {
+            return i;
+        }
+    }
+    return -1;
 }
 
 void Compiler::compileStatement(const Stmt& stmt) {
@@ -64,12 +106,19 @@ void Compiler::compileStatement(const Stmt& stmt) {
         } else {
             emitByte(static_cast<uint8_t>(OpCode::OP_NIL));
         }
-        int index = compilingChunk->addConstant(Value::string(letStmt->name));
-        emitBytes(static_cast<uint8_t>(OpCode::OP_DEFINE_GLOBAL), static_cast<uint8_t>(index));
+        
+        if (scopeDepth > 0) {
+            addLocal(letStmt->name);
+        } else {
+            int index = currentChunk()->addConstant(Value::string(letStmt->name));
+            emitBytes(static_cast<uint8_t>(OpCode::OP_DEFINE_GLOBAL), static_cast<uint8_t>(index));
+        }
     } else if (const auto* blockStmt = dynamic_cast<const BlockStmt*>(&stmt)) {
+        beginScope();
         for (const auto& s : blockStmt->statements) {
             compileStatement(*s);
         }
+        endScope();
     } else if (const auto* ifStmt = dynamic_cast<const IfStmt*>(&stmt)) {
         compileExpression(*ifStmt->condition);
         int jumpIfFalse = emitJump(static_cast<uint8_t>(OpCode::OP_JUMP_IF_FALSE));
@@ -86,7 +135,7 @@ void Compiler::compileStatement(const Stmt& stmt) {
         }
         patchJump(jump);
     } else if (const auto* whileStmt = dynamic_cast<const WhileStmt*>(&stmt)) {
-        int loopStart = static_cast<int>(compilingChunk->code.size());
+        int loopStart = static_cast<int>(currentChunk()->code.size());
         compileExpression(*whileStmt->condition);
         
         int jumpIfFalse = emitJump(static_cast<uint8_t>(OpCode::OP_JUMP_IF_FALSE));
@@ -97,6 +146,41 @@ void Compiler::compileStatement(const Stmt& stmt) {
         
         patchJump(jumpIfFalse);
         emitByte(static_cast<uint8_t>(OpCode::OP_POP));
+    } else if (const auto* funcStmt = dynamic_cast<const FunctionStmt*>(&stmt)) {
+        int globalIndex = currentChunk()->addConstant(Value::string(funcStmt->name));
+        
+        Compiler childCompiler(this, FunctionType::TYPE_FUNCTION);
+        childCompiler.function->name = funcStmt->name;
+        childCompiler.function->arity = funcStmt->parameters.size();
+        
+        childCompiler.beginScope();
+        for (const auto& param : funcStmt->parameters) {
+            childCompiler.addLocal(param.first);
+        }
+        
+        for (const auto& s : funcStmt->body->statements) {
+            childCompiler.compileStatement(*s);
+        }
+        
+        std::shared_ptr<BytecodeFunction> compiledFunc = childCompiler.endCompiler();
+        int funcIndex = currentChunk()->addConstant(Value::bytecodeFunction(compiledFunc));
+        emitBytes(static_cast<uint8_t>(OpCode::OP_CLOSURE), static_cast<uint8_t>(funcIndex));
+        
+        if (scopeDepth > 0) {
+            addLocal(funcStmt->name);
+        } else {
+            emitBytes(static_cast<uint8_t>(OpCode::OP_DEFINE_GLOBAL), static_cast<uint8_t>(globalIndex));
+        }
+    } else if (const auto* retStmt = dynamic_cast<const ReturnStmt*>(&stmt)) {
+        if (type == FunctionType::TYPE_SCRIPT) {
+            // Can't return from top-level code (for now)
+        }
+        if (retStmt->value) {
+            compileExpression(*retStmt->value);
+        } else {
+            emitByte(static_cast<uint8_t>(OpCode::OP_NIL));
+        }
+        emitByte(static_cast<uint8_t>(OpCode::OP_RETURN));
     }
 }
 
@@ -128,11 +212,27 @@ void Compiler::compileExpression(const Expr& expr) {
         if (op == "-") emitByte(static_cast<uint8_t>(OpCode::OP_NEGATE));
         else if (op == "!") emitByte(static_cast<uint8_t>(OpCode::OP_NOT));
     } else if (const auto* idExpr = dynamic_cast<const IdentifierExpr*>(&expr)) {
-        int index = compilingChunk->addConstant(Value::string(idExpr->name));
-        emitBytes(static_cast<uint8_t>(OpCode::OP_GET_GLOBAL), static_cast<uint8_t>(index));
+        int localArg = resolveLocal(idExpr->name);
+        if (localArg != -1) {
+            emitBytes(static_cast<uint8_t>(OpCode::OP_GET_LOCAL), static_cast<uint8_t>(localArg));
+        } else {
+            int index = currentChunk()->addConstant(Value::string(idExpr->name));
+            emitBytes(static_cast<uint8_t>(OpCode::OP_GET_GLOBAL), static_cast<uint8_t>(index));
+        }
     } else if (const auto* assignExpr = dynamic_cast<const AssignmentExpr*>(&expr)) {
         compileExpression(*assignExpr->value);
-        int index = compilingChunk->addConstant(Value::string(assignExpr->name));
-        emitBytes(static_cast<uint8_t>(OpCode::OP_SET_GLOBAL), static_cast<uint8_t>(index));
+        int localArg = resolveLocal(assignExpr->name);
+        if (localArg != -1) {
+            emitBytes(static_cast<uint8_t>(OpCode::OP_SET_LOCAL), static_cast<uint8_t>(localArg));
+        } else {
+            int index = currentChunk()->addConstant(Value::string(assignExpr->name));
+            emitBytes(static_cast<uint8_t>(OpCode::OP_SET_GLOBAL), static_cast<uint8_t>(index));
+        }
+    } else if (const auto* callExpr = dynamic_cast<const CallExpr*>(&expr)) {
+        compileExpression(*callExpr->callee);
+        for (const auto& arg : callExpr->arguments) {
+            compileExpression(*arg);
+        }
+        emitBytes(static_cast<uint8_t>(OpCode::OP_CALL), static_cast<uint8_t>(callExpr->arguments.size()));
     }
 }

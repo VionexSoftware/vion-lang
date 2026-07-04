@@ -14,6 +14,7 @@
 #include "runtime/GC.h"
 
 class VionCallable;
+struct BytecodeFunction;
 
 enum class ValueType {
     NUMBER,
@@ -22,7 +23,8 @@ enum class ValueType {
     FUNCTION,
     ARRAY,
     MAP,
-    NIL
+    NIL,
+    BYTECODE_FUNCTION
 };
 
 // Forward declaration for shared array storage
@@ -47,7 +49,8 @@ struct Value {
         bool,
         std::shared_ptr<VionCallable>,
         std::shared_ptr<VionArray>,
-        std::shared_ptr<VionMap>
+        std::shared_ptr<VionMap>,
+        std::shared_ptr<BytecodeFunction>
     > data = false;
 
     // ── Factories ──────────────────────────────────────────────────────────
@@ -57,6 +60,9 @@ struct Value {
     }
     static Value string(std::string v) {
         Value r; r.type = ValueType::STRING; r.data = std::move(v); return r;
+    }
+    static Value bytecodeFunction(std::shared_ptr<BytecodeFunction> v) {
+        Value r; r.type = ValueType::BYTECODE_FUNCTION; r.data = std::move(v); return r;
     }
     static Value boolean(bool v) {
         Value r; r.type = ValueType::BOOLEAN; r.data = v; return r;
@@ -125,6 +131,7 @@ struct Value {
             case ValueType::NUMBER:   return std::get<double>(data) != 0.0;
             case ValueType::STRING:   return !std::get<std::string>(data).empty();
             case ValueType::FUNCTION: return true;
+            case ValueType::BYTECODE_FUNCTION: return true;
             case ValueType::ARRAY:    return true;
             case ValueType::MAP:      return true;
         }
@@ -139,6 +146,7 @@ struct Value {
             case ValueType::NUMBER: return std::get<double>(data) == std::get<double>(other.data);
             case ValueType::STRING: return std::get<std::string>(data) == std::get<std::string>(other.data);
             case ValueType::FUNCTION: return std::get<std::shared_ptr<VionCallable>>(data) == std::get<std::shared_ptr<VionCallable>>(other.data);
+            case ValueType::BYTECODE_FUNCTION: return std::get<std::shared_ptr<BytecodeFunction>>(data) == std::get<std::shared_ptr<BytecodeFunction>>(other.data);
             case ValueType::ARRAY: return std::get<std::shared_ptr<VionArray>>(data) == std::get<std::shared_ptr<VionArray>>(other.data);
             case ValueType::MAP: return std::get<std::shared_ptr<VionMap>>(data) == std::get<std::shared_ptr<VionMap>>(other.data);
         }
@@ -173,6 +181,8 @@ struct Value {
                 return std::get<bool>(data) ? "true" : "false";
             case ValueType::FUNCTION:
                 return "<function>";
+            case ValueType::BYTECODE_FUNCTION:
+                return "<fn>";
             case ValueType::ARRAY: {
                 const auto& arr = std::get<std::shared_ptr<VionArray>>(data);
                 if (visited.count(arr.get())) return "[Circular]";
