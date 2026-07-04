@@ -10,6 +10,8 @@
 #include <variant>
 #include <vector>
 
+#include "runtime/GC.h"
+
 class VionCallable;
 
 enum class ValueType {
@@ -23,13 +25,17 @@ enum class ValueType {
 };
 
 // Forward declaration for shared array storage
-struct VionArray {
+struct VionArray : public GCObject {
     std::vector<struct Value> elements;
+    void trace(std::vector<std::shared_ptr<GCObject>>& children) const override;
+    void breakCycles() override { elements.clear(); }
 };
 
 // Map storage — unordered for O(1) average lookup
-struct VionMap {
+struct VionMap : public GCObject {
     std::unordered_map<std::string, struct Value> entries;
+    void trace(std::vector<std::shared_ptr<GCObject>>& children) const override;
+    void breakCycles() override { entries.clear(); }
 };
 
 struct Value {
@@ -127,6 +133,11 @@ struct Value {
     // ── Display ───────────────────────────────────────────────────────────
 
     std::string toString() const {
+        std::unordered_set<const void*> visited;
+        return toStringImpl(visited);
+    }
+
+    std::string toStringImpl(std::unordered_set<const void*>& visited) const {
         switch (type) {
             case ValueType::NUMBER: {
                 double v = std::get<double>(data);
@@ -149,26 +160,32 @@ struct Value {
                 return "<function>";
             case ValueType::ARRAY: {
                 const auto& arr = std::get<std::shared_ptr<VionArray>>(data);
+                if (visited.count(arr.get())) return "[Circular]";
+                visited.insert(arr.get());
                 std::ostringstream out;
                 out << "[";
                 for (std::size_t i = 0; i < arr->elements.size(); ++i) {
                     if (i > 0) out << ", ";
-                    out << arr->elements[i].toString();
+                    out << arr->elements[i].toStringImpl(visited);
                 }
                 out << "]";
+                visited.erase(arr.get());
                 return out.str();
             }
             case ValueType::MAP: {
                 const auto& m = std::get<std::shared_ptr<VionMap>>(data);
+                if (visited.count(m.get())) return "[Circular]";
+                visited.insert(m.get());
                 std::ostringstream out;
                 out << "{";
                 bool first = true;
                 for (const auto& [k, v] : m->entries) {
                     if (!first) out << ", ";
                     first = false;
-                    out << '"' << k << "\": " << v.toString();
+                    out << '"' << k << "\": " << v.toStringImpl(visited);
                 }
                 out << "}";
+                visited.erase(m.get());
                 return out.str();
             }
             case ValueType::NIL:

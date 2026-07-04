@@ -12,6 +12,7 @@ add_executable(vion
     src/lexer/Lexer.cpp
     src/parser/Parser.cpp
     src/runtime/Environment.cpp
+    src/runtime/GC.cpp
     src/interpreter/Interpreter.cpp
 )
 

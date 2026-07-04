@@ -7,7 +7,9 @@
 
 #include "runtime/Value.h"
 
-class Environment {
+#include "runtime/GC.h"
+
+class Environment : public GCObject {
 public:
     Environment() = default;
     explicit Environment(std::shared_ptr<Environment> enclosing);
@@ -15,6 +17,9 @@ public:
     void define(const std::string& name, const Value& value, bool isConst = false);
     void assign(const std::string& name, const Value& value);
     Value get(const std::string& name) const;
+    
+    void trace(std::vector<std::shared_ptr<GCObject>>& children) const override;
+    void breakCycles() override;
 
 private:
     std::unordered_map<std::string, Value> values;

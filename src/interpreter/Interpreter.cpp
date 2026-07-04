@@ -46,7 +46,7 @@ public:
     }
 
     Value call(Interpreter& interpreter, const std::vector<Value>& arguments) override {
-        auto callEnv = std::make_shared<Environment>(closure_);
+        auto callEnv = gc_make_shared<Environment>(closure_);
 
         std::size_t minArgs = 0;
         for (const auto& p : parameters_) {
@@ -79,6 +79,14 @@ public:
 
     std::string toString() const override {
         return "<fn " + name_ + ">";
+    }
+
+    void trace(std::vector<std::shared_ptr<GCObject>>& children) const override {
+        if (closure_) children.push_back(closure_);
+    }
+
+    void breakCycles() override {
+        closure_.reset();
     }
 
 private:
@@ -125,7 +133,7 @@ std::string argCountError(int expected, std::size_t received) {
 // ── Interpreter ───────────────────────────────────────────────────────────────
 
 Interpreter::Interpreter()
-    : globals(std::make_shared<Environment>()), environment(globals) {
+    : globals(gc_make_shared<Environment>()), environment(globals) {
     registerBuiltins();
 }
 
@@ -136,7 +144,7 @@ std::string Interpreter::locationOf(int line) const {
 
 void Interpreter::registerBuiltins() {
     // len(val) — string length or array length
-    globals->define("len", Value::function(std::make_shared<NativeFunction>(
+    globals->define("len", Value::function(gc_make_shared<NativeFunction>(
         "len", 1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             const Value& v = args[0];
@@ -149,7 +157,15 @@ void Interpreter::registerBuiltins() {
     )));
 
     // push(arr, val) — append element to array, returns the array
-    globals->define("push", Value::function(std::make_shared<NativeFunction>(
+    globals->define("gc", Value::function(gc_make_shared<NativeFunction>(
+        "gc", 0,
+        [](Interpreter&, const std::vector<Value>&) -> Value {
+            GC::instance().collectCycles();
+            return Value::nil();
+        }
+    )));
+
+    globals->define("push", Value::function(gc_make_shared<NativeFunction>(
         "push", 2,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             if (args[0].type != ValueType::ARRAY)
@@ -160,7 +176,7 @@ void Interpreter::registerBuiltins() {
     )));
 
     // pop(arr) — remove and return the last element
-    globals->define("pop", Value::function(std::make_shared<NativeFunction>(
+    globals->define("pop", Value::function(gc_make_shared<NativeFunction>(
         "pop", 1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             if (args[0].type != ValueType::ARRAY)
@@ -175,7 +191,7 @@ void Interpreter::registerBuiltins() {
     )));
 
     // str(val) — convert any value to its string representation
-    globals->define("str", Value::function(std::make_shared<NativeFunction>(
+    globals->define("str", Value::function(gc_make_shared<NativeFunction>(
         "str", 1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             return Value::string(args[0].toString());
@@ -183,7 +199,7 @@ void Interpreter::registerBuiltins() {
     )));
 
     // num(val) — convert string to number
-    globals->define("num", Value::function(std::make_shared<NativeFunction>(
+    globals->define("num", Value::function(gc_make_shared<NativeFunction>(
         "num", 1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             if (args[0].type == ValueType::NUMBER) return args[0];
@@ -200,7 +216,7 @@ void Interpreter::registerBuiltins() {
     )));
 
     // type(val) — return the type name as a string
-    globals->define("type", Value::function(std::make_shared<NativeFunction>(
+    globals->define("type", Value::function(gc_make_shared<NativeFunction>(
         "type", 1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             return Value::string(args[0].typeName());
@@ -208,7 +224,7 @@ void Interpreter::registerBuiltins() {
     )));
 
     // input(prompt?) — read a line from stdin; prompt is optional
-    globals->define("input", Value::function(std::make_shared<NativeFunction>(
+    globals->define("input", Value::function(gc_make_shared<NativeFunction>(
         "input", -1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             if (!args.empty()) std::cout << args[0].toString();
@@ -219,7 +235,7 @@ void Interpreter::registerBuiltins() {
     )));
 
     // clock() — seconds since epoch (useful for timing)
-    globals->define("clock", Value::function(std::make_shared<NativeFunction>(
+    globals->define("clock", Value::function(gc_make_shared<NativeFunction>(
         "clock", 0,
         [](Interpreter&, const std::vector<Value>&) -> Value {
             auto now = std::chrono::system_clock::now().time_since_epoch();
@@ -229,7 +245,7 @@ void Interpreter::registerBuiltins() {
     )));
 
     // floor(n)
-    globals->define("floor", Value::function(std::make_shared<NativeFunction>(
+    globals->define("floor", Value::function(gc_make_shared<NativeFunction>(
         "floor", 1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             return Value::number(std::floor(args[0].asNumber()));
@@ -237,7 +253,7 @@ void Interpreter::registerBuiltins() {
     )));
 
     // ceil(n)
-    globals->define("ceil", Value::function(std::make_shared<NativeFunction>(
+    globals->define("ceil", Value::function(gc_make_shared<NativeFunction>(
         "ceil", 1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             return Value::number(std::ceil(args[0].asNumber()));
@@ -245,7 +261,7 @@ void Interpreter::registerBuiltins() {
     )));
 
     // sqrt(n)
-    globals->define("sqrt", Value::function(std::make_shared<NativeFunction>(
+    globals->define("sqrt", Value::function(gc_make_shared<NativeFunction>(
         "sqrt", 1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             double v = args[0].asNumber();
@@ -255,7 +271,7 @@ void Interpreter::registerBuiltins() {
     )));
 
     // abs(n)
-    globals->define("abs", Value::function(std::make_shared<NativeFunction>(
+    globals->define("abs", Value::function(gc_make_shared<NativeFunction>(
         "abs", 1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             return Value::number(std::abs(args[0].asNumber()));
@@ -263,7 +279,7 @@ void Interpreter::registerBuiltins() {
     )));
 
     // max(a, b)
-    globals->define("max", Value::function(std::make_shared<NativeFunction>(
+    globals->define("max", Value::function(gc_make_shared<NativeFunction>(
         "max", 2,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             return Value::number(std::max(args[0].asNumber(), args[1].asNumber()));
@@ -271,7 +287,7 @@ void Interpreter::registerBuiltins() {
     )));
 
     // min(a, b)
-    globals->define("min", Value::function(std::make_shared<NativeFunction>(
+    globals->define("min", Value::function(gc_make_shared<NativeFunction>(
         "min", 2,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             return Value::number(std::min(args[0].asNumber(), args[1].asNumber()));
@@ -279,18 +295,18 @@ void Interpreter::registerBuiltins() {
     )));
 
     // array(size, fill) — create array with `size` elements initialized to `fill`
-    globals->define("array", Value::function(std::make_shared<NativeFunction>(
+    globals->define("array", Value::function(gc_make_shared<NativeFunction>(
         "array", 2,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             int size = static_cast<int>(args[0].asNumber());
             if (size < 0) throw std::runtime_error("Runtime Error: array() size cannot be negative.");
-            auto arr = std::make_shared<VionArray>();
+            auto arr = gc_make_shared<VionArray>();
             arr->elements.assign(size, args[1]);
             return Value::array(arr);
         }
     )));
     // range(n) / range(start,end) / range(start,end,step)
-    globals->define("range", Value::function(std::make_shared<NativeFunction>(
+    globals->define("range", Value::function(gc_make_shared<NativeFunction>(
         "range", -1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             if (args.empty() || args.size() > 3)
@@ -300,27 +316,27 @@ void Interpreter::registerBuiltins() {
             else if (args.size() == 2) { start = args[0].asNumber(); end = args[1].asNumber(); }
             else { start = args[0].asNumber(); end = args[1].asNumber(); step = args[2].asNumber(); }
             if (std::abs(step) < 1e-12) throw std::runtime_error("Runtime Error: range() step cannot be zero.");
-            auto arr = std::make_shared<VionArray>();
+            auto arr = gc_make_shared<VionArray>();
             for (double i = start; (step > 0 ? i < end : i > end); i += step)
                 arr->elements.push_back(Value::number(i));
             return Value::array(arr);
         }
     )));
-    globals->define("upper", Value::function(std::make_shared<NativeFunction>("upper", 1,
+    globals->define("upper", Value::function(gc_make_shared<NativeFunction>("upper", 1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             std::string s = args[0].asString();
             std::transform(s.begin(), s.end(), s.begin(), ::toupper);
             return Value::string(s);
         }
     )));
-    globals->define("lower", Value::function(std::make_shared<NativeFunction>("lower", 1,
+    globals->define("lower", Value::function(gc_make_shared<NativeFunction>("lower", 1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             std::string s = args[0].asString();
             std::transform(s.begin(), s.end(), s.begin(), ::tolower);
             return Value::string(s);
         }
     )));
-    globals->define("trim", Value::function(std::make_shared<NativeFunction>("trim", 1,
+    globals->define("trim", Value::function(gc_make_shared<NativeFunction>("trim", 1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             std::string s = args[0].asString();
             auto st = s.find_first_not_of(" \t\r\n");
@@ -328,10 +344,10 @@ void Interpreter::registerBuiltins() {
             return Value::string(st == std::string::npos ? "" : s.substr(st, en - st + 1));
         }
     )));
-    globals->define("split", Value::function(std::make_shared<NativeFunction>("split", 2,
+    globals->define("split", Value::function(gc_make_shared<NativeFunction>("split", 2,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             const std::string& s = args[0].asString(), &sep = args[1].asString();
-            auto arr = std::make_shared<VionArray>();
+            auto arr = gc_make_shared<VionArray>();
             if (sep.empty()) {
                 for (char c : s) arr->elements.push_back(Value::string(std::string(1, c)));
                 return Value::array(arr);
@@ -345,7 +361,7 @@ void Interpreter::registerBuiltins() {
             return Value::array(arr);
         }
     )));
-    globals->define("join", Value::function(std::make_shared<NativeFunction>("join", 2,
+    globals->define("join", Value::function(gc_make_shared<NativeFunction>("join", 2,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             auto arr = args[0].asArray();
             const std::string& sep = args[1].asString();
@@ -357,7 +373,7 @@ void Interpreter::registerBuiltins() {
             return Value::string(out.str());
         }
     )));
-    globals->define("contains", Value::function(std::make_shared<NativeFunction>("contains", 2,
+    globals->define("contains", Value::function(gc_make_shared<NativeFunction>("contains", 2,
         [this](Interpreter& interp, const std::vector<Value>& args) -> Value {
             if (args[0].type == ValueType::STRING)
                 return Value::boolean(args[0].asString().find(args[1].asString()) != std::string::npos);
@@ -369,7 +385,7 @@ void Interpreter::registerBuiltins() {
             throw std::runtime_error("Runtime Error: contains() expects string or array.");
         }
     )));
-    globals->define("replace", Value::function(std::make_shared<NativeFunction>("replace", 3,
+    globals->define("replace", Value::function(gc_make_shared<NativeFunction>("replace", 3,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             std::string s = args[0].asString();
             const std::string& from = args[1].asString(), &to = args[2].asString();
@@ -380,19 +396,19 @@ void Interpreter::registerBuiltins() {
             return Value::string(s);
         }
     )));
-    globals->define("startsWith", Value::function(std::make_shared<NativeFunction>("startsWith", 2,
+    globals->define("startsWith", Value::function(gc_make_shared<NativeFunction>("startsWith", 2,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             const std::string& s = args[0].asString(), &p = args[1].asString();
             return Value::boolean(s.size() >= p.size() && s.substr(0, p.size()) == p);
         }
     )));
-    globals->define("endsWith", Value::function(std::make_shared<NativeFunction>("endsWith", 2,
+    globals->define("endsWith", Value::function(gc_make_shared<NativeFunction>("endsWith", 2,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             const std::string& s = args[0].asString(), &p = args[1].asString();
             return Value::boolean(s.size() >= p.size() && s.substr(s.size() - p.size()) == p);
         }
     )));
-    globals->define("indexOf", Value::function(std::make_shared<NativeFunction>("indexOf", 2,
+    globals->define("indexOf", Value::function(gc_make_shared<NativeFunction>("indexOf", 2,
         [this](Interpreter& interp, const std::vector<Value>& args) -> Value {
             if (args[0].type == ValueType::STRING) {
                 auto p = args[0].asString().find(args[1].asString());
@@ -407,32 +423,32 @@ void Interpreter::registerBuiltins() {
             throw std::runtime_error("Runtime Error: indexOf() expects string or array.");
         }
     )));
-    globals->define("keys", Value::function(std::make_shared<NativeFunction>("keys", 1,
+    globals->define("keys", Value::function(gc_make_shared<NativeFunction>("keys", 1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
-            auto arr = std::make_shared<VionArray>();
+            auto arr = gc_make_shared<VionArray>();
             for (const auto& [k, v] : args[0].asMap()->entries) arr->elements.push_back(Value::string(k));
             return Value::array(arr);
         }
     )));
-    globals->define("values", Value::function(std::make_shared<NativeFunction>("values", 1,
+    globals->define("values", Value::function(gc_make_shared<NativeFunction>("values", 1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
-            auto arr = std::make_shared<VionArray>();
+            auto arr = gc_make_shared<VionArray>();
             for (const auto& [k, v] : args[0].asMap()->entries) arr->elements.push_back(v);
             return Value::array(arr);
         }
     )));
-    globals->define("hasKey", Value::function(std::make_shared<NativeFunction>("hasKey", 2,
+    globals->define("hasKey", Value::function(gc_make_shared<NativeFunction>("hasKey", 2,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             return Value::boolean(args[0].asMap()->entries.count(args[1].asString()) > 0);
         }
     )));
-    globals->define("del", Value::function(std::make_shared<NativeFunction>("del", 2,
+    globals->define("del", Value::function(gc_make_shared<NativeFunction>("del", 2,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             args[0].asMap()->entries.erase(args[1].asString());
             return args[0];
         }
     )));
-    globals->define("readFile", Value::function(std::make_shared<NativeFunction>("readFile", 1,
+    globals->define("readFile", Value::function(gc_make_shared<NativeFunction>("readFile", 1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             std::ifstream f(args[0].asString());
             if (!f) throw std::runtime_error("Runtime Error: cannot open '" + args[0].asString() + "'.");
@@ -440,46 +456,46 @@ void Interpreter::registerBuiltins() {
             return Value::string(buf.str());
         }
     )));
-    globals->define("writeFile", Value::function(std::make_shared<NativeFunction>("writeFile", 2,
+    globals->define("writeFile", Value::function(gc_make_shared<NativeFunction>("writeFile", 2,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             std::ofstream f(args[0].asString());
             if (!f) throw std::runtime_error("Runtime Error: cannot write '" + args[0].asString() + "'.");
             f << args[1].asString(); return Value::boolean(true);
         }
     )));
-    globals->define("appendFile", Value::function(std::make_shared<NativeFunction>("appendFile", 2,
+    globals->define("appendFile", Value::function(gc_make_shared<NativeFunction>("appendFile", 2,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             std::ofstream f(args[0].asString(), std::ios::app);
             if (!f) throw std::runtime_error("Runtime Error: cannot append '" + args[0].asString() + "'.");
             f << args[1].asString(); return Value::boolean(true);
         }
     )));
-    globals->define("fileExists", Value::function(std::make_shared<NativeFunction>("fileExists", 1,
+    globals->define("fileExists", Value::function(gc_make_shared<NativeFunction>("fileExists", 1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             return Value::boolean(std::ifstream(args[0].asString()).good());
         }
     )));
-    globals->define("random", Value::function(std::make_shared<NativeFunction>("random", 0,
+    globals->define("random", Value::function(gc_make_shared<NativeFunction>("random", 0,
         [](Interpreter&, const std::vector<Value>&) -> Value {
             static std::mt19937 rng(std::random_device{}());
             static std::uniform_real_distribution<double> dist(0.0, 1.0);
             return Value::number(dist(rng));
         }
     )));
-    globals->define("sleep", Value::function(std::make_shared<NativeFunction>("sleep", 1,
+    globals->define("sleep", Value::function(gc_make_shared<NativeFunction>("sleep", 1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             std::this_thread::sleep_for(std::chrono::milliseconds((int)args[0].asNumber()));
             return Value::nil();
         }
     )));
-    globals->define("exit", Value::function(std::make_shared<NativeFunction>("exit", 1,
+    globals->define("exit", Value::function(gc_make_shared<NativeFunction>("exit", 1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             std::exit((int)args[0].asNumber());
         }
     )));
 
     // substr(str, start, len) — substring
-    globals->define("substr", Value::function(std::make_shared<NativeFunction>("substr", 3,
+    globals->define("substr", Value::function(gc_make_shared<NativeFunction>("substr", 3,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             const std::string& s = args[0].asString();
             int start = static_cast<int>(args[1].asNumber());
@@ -492,7 +508,7 @@ void Interpreter::registerBuiltins() {
     )));
 
     // randInt(min, max) — random integer in [min, max]
-    globals->define("randInt", Value::function(std::make_shared<NativeFunction>("randInt", 2,
+    globals->define("randInt", Value::function(gc_make_shared<NativeFunction>("randInt", 2,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             static std::mt19937 rng(std::random_device{}());
             int lo = static_cast<int>(args[0].asNumber());
@@ -504,33 +520,33 @@ void Interpreter::registerBuiltins() {
     )));
 
     // -- Phase 2: Output functions
-    globals->define("println", Value::function(std::make_shared<NativeFunction>("println", -1,
+    globals->define("println", Value::function(gc_make_shared<NativeFunction>("println", -1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             for (std::size_t i = 0; i < args.size(); ++i) { if (i > 0) std::cout << " "; std::cout << args[i].toString(); }
             std::cout << "\n"; return Value::nil();
         })));
-    globals->define("write", Value::function(std::make_shared<NativeFunction>("write", -1,
+    globals->define("write", Value::function(gc_make_shared<NativeFunction>("write", -1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             for (std::size_t i = 0; i < args.size(); ++i) { if (i > 0) std::cout << " "; std::cout << args[i].toString(); }
             return Value::nil();
         })));
 
     // -- Phase 2: Higher-order functions
-    globals->define("map", Value::function(std::make_shared<NativeFunction>("map", 2,
+    globals->define("map", Value::function(gc_make_shared<NativeFunction>("map", 2,
         [](Interpreter& interp, const std::vector<Value>& args) -> Value {
             auto src = args[0].asArray(); auto fn = args[1].asFunction();
-            auto out = std::make_shared<VionArray>();
+            auto out = gc_make_shared<VionArray>();
             for (const auto& e : src->elements) out->elements.push_back(fn->call(interp, {e}));
             return Value::array(out);
         })));
-    globals->define("filter", Value::function(std::make_shared<NativeFunction>("filter", 2,
+    globals->define("filter", Value::function(gc_make_shared<NativeFunction>("filter", 2,
         [](Interpreter& interp, const std::vector<Value>& args) -> Value {
             auto src = args[0].asArray(); auto fn = args[1].asFunction();
-            auto out = std::make_shared<VionArray>();
+            auto out = gc_make_shared<VionArray>();
             for (const auto& e : src->elements) if (fn->call(interp, {e}).isTruthy()) out->elements.push_back(e);
             return Value::array(out);
         })));
-    globals->define("reduce", Value::function(std::make_shared<NativeFunction>("reduce", 3,
+    globals->define("reduce", Value::function(gc_make_shared<NativeFunction>("reduce", 3,
         [](Interpreter& interp, const std::vector<Value>& args) -> Value {
             auto src = args[0].asArray(); auto fn = args[2].asFunction(); Value acc = args[1];
             for (const auto& e : src->elements) acc = fn->call(interp, {acc, e});
@@ -538,35 +554,35 @@ void Interpreter::registerBuiltins() {
         })));
 
     // -- Phase 4.1: Math
-    globals->define("pow", Value::function(std::make_shared<NativeFunction>("pow", 2,
+    globals->define("pow", Value::function(gc_make_shared<NativeFunction>("pow", 2,
         [](Interpreter&, const std::vector<Value>& a) -> Value { return Value::number(std::pow(a[0].asNumber(), a[1].asNumber())); })));
-    globals->define("log", Value::function(std::make_shared<NativeFunction>("log", -1,
+    globals->define("log", Value::function(gc_make_shared<NativeFunction>("log", -1,
         [](Interpreter&, const std::vector<Value>& a) -> Value {
             if (a.empty() || a.size() > 2) throw std::runtime_error("Runtime Error: log() expects 1-2 args.");
             return a.size()==1 ? Value::number(std::log(a[0].asNumber())) : Value::number(std::log(a[0].asNumber())/std::log(a[1].asNumber()));
         })));
-    globals->define("round", Value::function(std::make_shared<NativeFunction>("round", -1,
+    globals->define("round", Value::function(gc_make_shared<NativeFunction>("round", -1,
         [](Interpreter&, const std::vector<Value>& a) -> Value {
             if (a.empty() || a.size() > 2) throw std::runtime_error("Runtime Error: round() expects 1-2 args.");
             if (a.size()==1) return Value::number(std::round(a[0].asNumber()));
             double f=std::pow(10.0,a[1].asNumber()); return Value::number(std::round(a[0].asNumber()*f)/f);
         })));
-    globals->define("pi",  Value::function(std::make_shared<NativeFunction>("pi",  0,
+    globals->define("pi",  Value::function(gc_make_shared<NativeFunction>("pi",  0,
         [](Interpreter&, const std::vector<Value>&) -> Value { return Value::number(3.14159265358979323846); })));
-    globals->define("sin", Value::function(std::make_shared<NativeFunction>("sin", 1,
+    globals->define("sin", Value::function(gc_make_shared<NativeFunction>("sin", 1,
         [](Interpreter&, const std::vector<Value>& a) -> Value { return Value::number(std::sin(a[0].asNumber())); })));
-    globals->define("cos", Value::function(std::make_shared<NativeFunction>("cos", 1,
+    globals->define("cos", Value::function(gc_make_shared<NativeFunction>("cos", 1,
         [](Interpreter&, const std::vector<Value>& a) -> Value { return Value::number(std::cos(a[0].asNumber())); })));
-    globals->define("tan", Value::function(std::make_shared<NativeFunction>("tan", 1,
+    globals->define("tan", Value::function(gc_make_shared<NativeFunction>("tan", 1,
         [](Interpreter&, const std::vector<Value>& a) -> Value { return Value::number(std::tan(a[0].asNumber())); })));
 
     // -- Phase 4.2: String extras
-    globals->define("repeat", Value::function(std::make_shared<NativeFunction>("repeat", 2,
+    globals->define("repeat", Value::function(gc_make_shared<NativeFunction>("repeat", 2,
         [](Interpreter&, const std::vector<Value>& a) -> Value {
             const std::string& s=a[0].asString(); int n=(int)a[1].asNumber();
             std::string out; for(int i=0;i<n;++i) out+=s; return Value::string(out);
         })));
-    globals->define("padLeft", Value::function(std::make_shared<NativeFunction>("padLeft", -1,
+    globals->define("padLeft", Value::function(gc_make_shared<NativeFunction>("padLeft", -1,
         [](Interpreter&, const std::vector<Value>& a) -> Value {
             if(a.size()<2) throw std::runtime_error("Runtime Error: padLeft() needs 2-3 args.");
             std::string s=a[0].asString(); int w=(int)a[1].asNumber();
@@ -574,7 +590,7 @@ void Interpreter::registerBuiltins() {
             while((int)s.size()<w) s=pad+s;
             return Value::string(s.size()>(std::size_t)w?s.substr(s.size()-w):s);
         })));
-    globals->define("padRight", Value::function(std::make_shared<NativeFunction>("padRight", -1,
+    globals->define("padRight", Value::function(gc_make_shared<NativeFunction>("padRight", -1,
         [](Interpreter&, const std::vector<Value>& a) -> Value {
             if(a.size()<2) throw std::runtime_error("Runtime Error: padRight() needs 2-3 args.");
             std::string s=a[0].asString(); int w=(int)a[1].asNumber();
@@ -584,33 +600,33 @@ void Interpreter::registerBuiltins() {
         })));
 
     // -- Phase 4.3: Array extras
-    globals->define("sort", Value::function(std::make_shared<NativeFunction>("sort", -1,
+    globals->define("sort", Value::function(gc_make_shared<NativeFunction>("sort", -1,
         [](Interpreter& interp, const std::vector<Value>& a) -> Value {
             if(a.empty()) throw std::runtime_error("Runtime Error: sort() needs 1-2 args.");
-            auto out=std::make_shared<VionArray>(); out->elements=a[0].asArray()->elements;
+            auto out=gc_make_shared<VionArray>(); out->elements=a[0].asArray()->elements;
             if(a.size()>=2){auto fn=a[1].asFunction(); std::sort(out->elements.begin(),out->elements.end(),[&](const Value& x,const Value& y){return fn->call(interp,{x,y}).isTruthy();});}
             else{std::sort(out->elements.begin(),out->elements.end(),[](const Value& x,const Value& y){if(x.type==ValueType::NUMBER&&y.type==ValueType::NUMBER)return x.asNumber()<y.asNumber();return x.toString()<y.toString();});}
             return Value::array(out);
         })));
-    globals->define("reverse", Value::function(std::make_shared<NativeFunction>("reverse", 1,
+    globals->define("reverse", Value::function(gc_make_shared<NativeFunction>("reverse", 1,
         [](Interpreter&, const std::vector<Value>& a) -> Value {
-            auto out=std::make_shared<VionArray>(); out->elements=a[0].asArray()->elements;
+            auto out=gc_make_shared<VionArray>(); out->elements=a[0].asArray()->elements;
             std::reverse(out->elements.begin(),out->elements.end()); return Value::array(out);
         })));
-    globals->define("slice", Value::function(std::make_shared<NativeFunction>("slice", -1,
+    globals->define("slice", Value::function(gc_make_shared<NativeFunction>("slice", -1,
         [](Interpreter&, const std::vector<Value>& a) -> Value {
             if(a.empty()) throw std::runtime_error("Runtime Error: slice() needs 1-3 args.");
             auto src=a[0].asArray(); int sz=(int)src->elements.size();
             int st=a.size()>=2?(int)a[1].asNumber():0, en=a.size()>=3?(int)a[2].asNumber():sz;
             if(st<0)st=std::max(0,sz+st); if(en<0)en=std::max(0,sz+en);
             st=std::min(st,sz); en=std::min(en,sz);
-            auto out=std::make_shared<VionArray>();
+            auto out=gc_make_shared<VionArray>();
             for(int i=st;i<en;++i) out->elements.push_back(src->elements[i]);
             return Value::array(out);
         })));
-    globals->define("flat", Value::function(std::make_shared<NativeFunction>("flat", 1,
+    globals->define("flat", Value::function(gc_make_shared<NativeFunction>("flat", 1,
         [](Interpreter&, const std::vector<Value>& a) -> Value {
-            auto out=std::make_shared<VionArray>();
+            auto out=gc_make_shared<VionArray>();
             for(const auto& e:a[0].asArray()->elements){
                 if(e.type==ValueType::ARRAY) for(const auto& inner:e.asArray()->elements) out->elements.push_back(inner);
                 else out->elements.push_back(e);
@@ -619,13 +635,13 @@ void Interpreter::registerBuiltins() {
         })));
 
     // -- Phase 4.4: System
-    globals->define("env", Value::function(std::make_shared<NativeFunction>("env", 1,
+    globals->define("env", Value::function(gc_make_shared<NativeFunction>("env", 1,
         [](Interpreter&, const std::vector<Value>& a) -> Value {
             const char* v=std::getenv(a[0].asString().c_str()); return v?Value::string(v):Value::nil();
         })));
 
     // -- forEach(array, fn) — call fn for each element
-    globals->define("forEach", Value::function(std::make_shared<NativeFunction>("forEach", 2,
+    globals->define("forEach", Value::function(gc_make_shared<NativeFunction>("forEach", 2,
         [](Interpreter& interp, const std::vector<Value>& args) -> Value {
             auto arr = args[0].asArray(); auto fn = args[1].asFunction();
             for (const auto& e : arr->elements) fn->call(interp, {e});
@@ -633,7 +649,7 @@ void Interpreter::registerBuiltins() {
         })));
 
     // -- toJSON / parseJSON
-    globals->define("toJSON", Value::function(std::make_shared<NativeFunction>("toJSON", 1,
+    globals->define("toJSON", Value::function(gc_make_shared<NativeFunction>("toJSON", 1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             return Value::string(args[0].toString());
         })));
@@ -686,9 +702,9 @@ void Interpreter::execute(const Stmt& statement) {
 
     if (const auto* tryCatchStmt = dynamic_cast<const TryCatchStmt*>(&statement)) {
         try {
-            executeBlock(*tryCatchStmt->tryBody, std::make_shared<Environment>(environment));
+            executeBlock(*tryCatchStmt->tryBody, gc_make_shared<Environment>(environment));
         } catch (const std::runtime_error& e) {
-            auto catchEnv = std::make_shared<Environment>(environment);
+            auto catchEnv = gc_make_shared<Environment>(environment);
             catchEnv->define(tryCatchStmt->catchVar, Value::string(std::string(e.what())));
             executeBlock(*tryCatchStmt->catchBody, catchEnv);
         }
@@ -716,16 +732,16 @@ void Interpreter::execute(const Stmt& statement) {
     }
 
     if (const auto* blockStmt = dynamic_cast<const BlockStmt*>(&statement)) {
-        executeBlock(*blockStmt, std::make_shared<Environment>(environment));
+        executeBlock(*blockStmt, gc_make_shared<Environment>(environment));
         return;
     }
 
     if (const auto* ifStmt = dynamic_cast<const IfStmt*>(&statement)) {
         Value condition = evaluate(*ifStmt->condition);
         if (condition.isTruthy()) {
-            executeBlock(*ifStmt->thenBranch, std::make_shared<Environment>(environment));
+            executeBlock(*ifStmt->thenBranch, gc_make_shared<Environment>(environment));
         } else if (ifStmt->elseBranch) {
-            executeBlock(*ifStmt->elseBranch, std::make_shared<Environment>(environment));
+            executeBlock(*ifStmt->elseBranch, gc_make_shared<Environment>(environment));
         }
         return;
     }
@@ -733,7 +749,7 @@ void Interpreter::execute(const Stmt& statement) {
     if (const auto* whileStmt = dynamic_cast<const WhileStmt*>(&statement)) {
         while (evaluate(*whileStmt->condition).isTruthy()) {
             try {
-                executeBlock(*whileStmt->body, std::make_shared<Environment>(environment));
+                executeBlock(*whileStmt->body, gc_make_shared<Environment>(environment));
             } catch (const BreakSignal&) {
                 break;
             } catch (const ContinueSignal&) {
@@ -750,7 +766,7 @@ void Interpreter::execute(const Stmt& statement) {
             // Snapshot the array — iterate a copy of the element list
             auto elements = iterableVal.asArray()->elements;
             for (const Value& element : elements) {
-                auto loopEnv = std::make_shared<Environment>(environment);
+                auto loopEnv = gc_make_shared<Environment>(environment);
                 loopEnv->define(forStmt->variable, element);
                 try {
                     executeBlock(*forStmt->body, loopEnv);
@@ -764,7 +780,7 @@ void Interpreter::execute(const Stmt& statement) {
             // Iterate over characters
             const std::string& s = iterableVal.asString();
             for (char ch : s) {
-                auto loopEnv = std::make_shared<Environment>(environment);
+                auto loopEnv = gc_make_shared<Environment>(environment);
                 loopEnv->define(forStmt->variable, Value::string(std::string(1, ch)));
                 try {
                     executeBlock(*forStmt->body, loopEnv);
@@ -778,7 +794,7 @@ void Interpreter::execute(const Stmt& statement) {
             // Iterate over map keys
             auto entries = iterableVal.asMap()->entries;
             for (const auto& [key, val] : entries) {
-                auto loopEnv = std::make_shared<Environment>(environment);
+                auto loopEnv = gc_make_shared<Environment>(environment);
                 loopEnv->define(forStmt->variable, Value::string(key));
                 try {
                     executeBlock(*forStmt->body, loopEnv);
@@ -800,7 +816,7 @@ void Interpreter::execute(const Stmt& statement) {
     if (const auto* functionStmt = dynamic_cast<const FunctionStmt*>(&statement)) {
         environment->define(
             functionStmt->name,
-            Value::function(std::make_shared<VionFunction>(*functionStmt, environment))
+            Value::function(gc_make_shared<VionFunction>(*functionStmt, environment))
         );
         return;
     }
@@ -824,6 +840,13 @@ void Interpreter::execute(const Stmt& statement) {
 // ── Expressions ───────────────────────────────────────────────────────────────
 
 Value Interpreter::evaluate(const Expr& expression) {
+    if (evalDepth >= kMaxEvalDepth) {
+        throw std::runtime_error("Runtime Error" + locationOf(expression.line) +
+            ": maximum expression depth exceeded.");
+    }
+    ++evalDepth;
+    struct Guard { Interpreter& i; ~Guard() { --i.evalDepth; } } guard{*this};
+
     if (const auto* numberExpr = dynamic_cast<const NumberExpr*>(&expression)) {
         return Value::number(numberExpr->value);
     }
@@ -901,21 +924,21 @@ Value Interpreter::evaluate(const Expr& expression) {
         return evaluateIndex(*indexExpr);
     }
     if (const auto* arrayExpr = dynamic_cast<const ArrayExpr*>(&expression)) {
-        auto arr = std::make_shared<VionArray>();
+        auto arr = gc_make_shared<VionArray>();
         for (const auto& elem : arrayExpr->elements) {
             arr->elements.push_back(evaluate(*elem));
         }
         return Value::array(arr);
     }
     if (const auto* mapExpr = dynamic_cast<const MapExpr*>(&expression)) {
-        auto m = std::make_shared<VionMap>();
+        auto m = gc_make_shared<VionMap>();
         for (const auto& [key, valExpr] : mapExpr->pairs) {
             m->entries[key] = evaluate(*valExpr);
         }
         return Value::map(m);
     }
     if (const auto* lambdaExpr = dynamic_cast<const LambdaExpr*>(&expression)) {
-        return Value::function(std::make_shared<VionFunction>(*lambdaExpr->decl, environment));
+        return Value::function(gc_make_shared<VionFunction>(*lambdaExpr->decl, environment));
     }
     if (const auto* ternaryExpr = dynamic_cast<const TernaryExpr*>(&expression)) {
         Value cond = evaluate(*ternaryExpr->condition);
@@ -1017,7 +1040,7 @@ Value Interpreter::evaluateBinary(const BinaryExpr& expression) {
         if (left.type == ValueType::STRING || right.type == ValueType::STRING)
             return Value::string(left.toString() + right.toString());
         if (left.type == ValueType::ARRAY && right.type == ValueType::ARRAY) {
-            auto result = std::make_shared<VionArray>();
+            auto result = gc_make_shared<VionArray>();
             result->elements = left.asArray()->elements;
             for (const auto& e : right.asArray()->elements) result->elements.push_back(e);
             return Value::array(result);
@@ -1191,3 +1214,4 @@ void Interpreter::executeImport(const ImportStmt& stmt) {
 
     currentDir_ = prevDir;
 }
+

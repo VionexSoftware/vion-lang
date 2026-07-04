@@ -189,6 +189,11 @@ std::unique_ptr<BlockStmt> Parser::blockStatement() {
 }
 
 std::unique_ptr<Expr> Parser::expression() {
+    if (depth >= kMaxDepth) {
+        errorAtCurrent("maximum expression depth exceeded.");
+    }
+    ++depth;
+    struct Guard { Parser& p; ~Guard() { --p.depth; } } guard{*this};
     return assignment();
 }
 

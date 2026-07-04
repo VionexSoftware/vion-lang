@@ -1,6 +1,23 @@
 #include "runtime/Environment.h"
+#include "interpreter/Interpreter.h"
 
 #include <stdexcept>
+
+void VionArray::trace(std::vector<std::shared_ptr<GCObject>>& children) const {
+    for (const auto& el : elements) {
+        if (el.type == ValueType::ARRAY) children.push_back(std::get<std::shared_ptr<VionArray>>(el.data));
+        else if (el.type == ValueType::MAP) children.push_back(std::get<std::shared_ptr<VionMap>>(el.data));
+        else if (el.type == ValueType::FUNCTION) children.push_back(std::get<std::shared_ptr<VionCallable>>(el.data));
+    }
+}
+
+void VionMap::trace(std::vector<std::shared_ptr<GCObject>>& children) const {
+    for (const auto& [k, el] : entries) {
+        if (el.type == ValueType::ARRAY) children.push_back(std::get<std::shared_ptr<VionArray>>(el.data));
+        else if (el.type == ValueType::MAP) children.push_back(std::get<std::shared_ptr<VionMap>>(el.data));
+        else if (el.type == ValueType::FUNCTION) children.push_back(std::get<std::shared_ptr<VionCallable>>(el.data));
+    }
+}
 
 Environment::Environment(std::shared_ptr<Environment> enclosing) : enclosing(std::move(enclosing)) {}
 
@@ -37,4 +54,18 @@ Value Environment::get(const std::string& name) const {
     }
 
     throw std::runtime_error("Runtime Error: undefined variable '" + name + "'.");
+}
+
+void Environment::trace(std::vector<std::shared_ptr<GCObject>>& children) const {
+    if (enclosing) children.push_back(enclosing);
+    for (const auto& [name, val] : values) {
+        if (val.type == ValueType::ARRAY) children.push_back(std::get<std::shared_ptr<VionArray>>(val.data));
+        else if (val.type == ValueType::MAP) children.push_back(std::get<std::shared_ptr<VionMap>>(val.data));
+        else if (val.type == ValueType::FUNCTION) children.push_back(std::get<std::shared_ptr<VionCallable>>(val.data));
+    }
+}
+
+void Environment::breakCycles() {
+    enclosing.reset();
+    values.clear();
 }

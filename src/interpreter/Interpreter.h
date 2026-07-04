@@ -12,12 +12,14 @@
 
 class Interpreter;
 
-class VionCallable {
+class VionCallable : public GCObject {
 public:
     virtual ~VionCallable() = default;
     virtual int arity() const = 0;
     virtual Value call(Interpreter& interpreter, const std::vector<Value>& arguments) = 0;
     virtual std::string toString() const = 0;
+    
+    void trace(std::vector<std::shared_ptr<GCObject>>& children) const override {}
 };
 
 class Interpreter {
@@ -38,6 +40,8 @@ private:
     std::shared_ptr<Environment> environment;
     int callDepth = 0;
     static constexpr int kMaxCallDepth = 500;
+    int evalDepth = 0;
+    static constexpr int kMaxEvalDepth = 500;
     std::string currentDir_;
     std::unordered_set<std::string> importedFiles_;
 

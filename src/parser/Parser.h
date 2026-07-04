@@ -15,6 +15,8 @@ public:
 private:
     std::vector<Token> tokens;
     int current = 0;
+    int depth = 0;
+    static constexpr int kMaxDepth = 500;
 
     std::unique_ptr<Stmt> declaration();
     std::unique_ptr<Stmt> functionDeclaration();
