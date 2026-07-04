@@ -116,7 +116,7 @@ static void runProgram(const std::string& source, const std::string& dir = "") {
     auto function = compiler.compile(program);
     if (function) {
         VM vm;
-        InterpretResult result = vm.interpret(function);
+        InterpretResult result = vm.interpret(function, dir);
         if (result != InterpretResult::INTERPRET_OK) {
             exit(1);
         }
@@ -216,8 +216,8 @@ int main(int argc, char* argv[]) {
 
         if (isVionFilePath(command)) {
             std::string source = readFile(command);
-            std::string dir = std::filesystem::path(command).parent_path().string();
-            runProgram(source, dir);
+            std::string absPath = std::filesystem::absolute(command).string();
+            runProgram(source, absPath);
             return 0;
         }
 
@@ -241,8 +241,8 @@ int main(int argc, char* argv[]) {
         }
 
         if (isOneOf(command, {"run", "--run", "-r"})) {
-            std::string dir = std::filesystem::path(filePath).parent_path().string();
-            runProgram(source, dir);
+            std::string absPath = std::filesystem::absolute(filePath).string();
+            runProgram(source, absPath);
             return 0;
         }
 

@@ -21,7 +21,6 @@ enum class ValueType {
     NUMBER,
     STRING,
     BOOLEAN,
-    FUNCTION,
     ARRAY,
     MAP,
     NIL,
@@ -54,12 +53,11 @@ struct Value {
         double,
         std::string,
         bool,
-        std::shared_ptr<VionCallable>,
         std::shared_ptr<VionArray>,
         std::shared_ptr<VionMap>,
         std::shared_ptr<BytecodeFunction>,
         std::shared_ptr<VMNativeFunction>
-    > data = false;
+    > data;
 
     // ── Factories ──────────────────────────────────────────────────────────
 
@@ -77,9 +75,6 @@ struct Value {
     }
     static Value boolean(bool v) {
         Value r; r.type = ValueType::BOOLEAN; r.data = v; return r;
-    }
-    static Value function(std::shared_ptr<VionCallable> v) {
-        Value r; r.type = ValueType::FUNCTION; r.data = std::move(v); return r;
     }
     static Value array(std::shared_ptr<VionArray> v) {
         Value r; r.type = ValueType::ARRAY; r.data = std::move(v); return r;
@@ -115,12 +110,6 @@ struct Value {
         return std::get<bool>(data);
     }
 
-    std::shared_ptr<VionCallable> asFunction() const {
-        if (type != ValueType::FUNCTION)
-            throw std::runtime_error("Runtime Error: expected function.");
-        return std::get<std::shared_ptr<VionCallable>>(data);
-    }
-
     std::shared_ptr<VionArray> asArray() const {
         if (type != ValueType::ARRAY)
             throw std::runtime_error("Runtime Error: expected array.");
@@ -141,7 +130,6 @@ struct Value {
             case ValueType::BOOLEAN:  return std::get<bool>(data);
             case ValueType::NUMBER:   return std::get<double>(data) != 0.0;
             case ValueType::STRING:   return !std::get<std::string>(data).empty();
-            case ValueType::FUNCTION: return true;
             case ValueType::BYTECODE_FUNCTION: return true;
             case ValueType::NATIVE_FUNCTION: return true;
             case ValueType::ARRAY:    return true;
@@ -157,7 +145,6 @@ struct Value {
             case ValueType::BOOLEAN: return std::get<bool>(data) == std::get<bool>(other.data);
             case ValueType::NUMBER: return std::get<double>(data) == std::get<double>(other.data);
             case ValueType::STRING: return std::get<std::string>(data) == std::get<std::string>(other.data);
-            case ValueType::FUNCTION: return std::get<std::shared_ptr<VionCallable>>(data) == std::get<std::shared_ptr<VionCallable>>(other.data);
             case ValueType::BYTECODE_FUNCTION: return std::get<std::shared_ptr<BytecodeFunction>>(data) == std::get<std::shared_ptr<BytecodeFunction>>(other.data);
             case ValueType::NATIVE_FUNCTION: return std::get<std::shared_ptr<VMNativeFunction>>(data) == std::get<std::shared_ptr<VMNativeFunction>>(other.data);
             case ValueType::ARRAY: return std::get<std::shared_ptr<VionArray>>(data) == std::get<std::shared_ptr<VionArray>>(other.data);
@@ -170,10 +157,15 @@ struct Value {
 
     std::string toString() const {
         std::unordered_set<const void*> visited;
-        return toStringImpl(visited);
+        return toStringImpl(visited, false);
+    }
+    
+    std::string toJsonString() const {
+        std::unordered_set<const void*> visited;
+        return toStringImpl(visited, true);
     }
 
-    std::string toStringImpl(std::unordered_set<const void*>& visited) const {
+    std::string toStringImpl(std::unordered_set<const void*>& visited, bool quoteStrings) const {
         switch (type) {
             case ValueType::NUMBER: {
                 double v = std::get<double>(data);
@@ -188,12 +180,23 @@ struct Value {
                 out << v;
                 return out.str();
             }
-            case ValueType::STRING:
-                return std::get<std::string>(data);
+            case ValueType::STRING: {
+                std::string s = std::get<std::string>(data);
+                if (quoteStrings) {
+                    // Extremely basic escaping
+                    std::string escaped = "\"";
+                    for (char c : s) {
+                        if (c == '"') escaped += "\\\"";
+                        else if (c == '\\') escaped += "\\\\";
+                        else escaped += c;
+                    }
+                    escaped += "\"";
+                    return escaped;
+                }
+                return s;
+            }
             case ValueType::BOOLEAN:
                 return std::get<bool>(data) ? "true" : "false";
-            case ValueType::FUNCTION:
-                return "<function>";
             case ValueType::BYTECODE_FUNCTION:
                 return "<fn>";
             case ValueType::NATIVE_FUNCTION:
@@ -206,7 +209,7 @@ struct Value {
                 out << "[";
                 for (std::size_t i = 0; i < arr->elements.size(); ++i) {
                     if (i > 0) out << ", ";
-                    out << arr->elements[i].toStringImpl(visited);
+                    out << arr->elements[i].toStringImpl(visited, quoteStrings);
                 }
                 out << "]";
                 visited.erase(arr.get());
@@ -222,16 +225,16 @@ struct Value {
                 for (const auto& [k, v] : m->entries) {
                     if (!first) out << ", ";
                     first = false;
-                    out << '"' << k << "\": " << v.toStringImpl(visited);
+                    out << '"' << k << "\": " << v.toStringImpl(visited, quoteStrings);
                 }
                 out << "}";
                 visited.erase(m.get());
                 return out.str();
             }
             case ValueType::NIL:
-                return "nil";
+                return "null"; // JSON uses null instead of nil
         }
-        return "nil";
+        return "null";
     }
 
     // ── Type name ─────────────────────────────────────────────────────────
@@ -241,7 +244,6 @@ struct Value {
             case ValueType::NUMBER:   return "number";
             case ValueType::STRING:   return "string";
             case ValueType::BOOLEAN:  return "boolean";
-            case ValueType::FUNCTION: return "function";
             case ValueType::ARRAY:    return "array";
             case ValueType::MAP:      return "map";
             case ValueType::NIL:      return "nil";

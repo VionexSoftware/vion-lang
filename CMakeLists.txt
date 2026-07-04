@@ -11,7 +11,6 @@ add_executable(vion
     src/main.cpp
     src/lexer/Lexer.cpp
     src/parser/Parser.cpp
-    src/runtime/Environment.cpp
     src/runtime/GC.cpp
     src/vm/Chunk.cpp
     src/vm/VM.cpp

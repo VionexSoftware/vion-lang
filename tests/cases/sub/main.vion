@@ -1,0 +1,4 @@
+let math = import "math.vion"
+print "Relative import successful!"
+print "PI = ", math.PI
+print "5 + 3 = ", math.add(5, 3)

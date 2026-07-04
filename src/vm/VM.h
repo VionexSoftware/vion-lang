@@ -45,7 +45,7 @@ public:
     VM();
     ~VM();
 
-    InterpretResult interpret(std::shared_ptr<BytecodeFunction> function);
+    InterpretResult interpret(std::shared_ptr<BytecodeFunction> function, const std::string& scriptPath = "");
     void push(Value value);
     Value pop();
 
@@ -57,6 +57,7 @@ private:
     std::vector<Value> stack;
     std::vector<CallFrame> frames;
     std::vector<TryHandler> tryHandlers;
+    std::string currentScriptPath;
     
     std::unordered_map<std::string, Value> globals;
 

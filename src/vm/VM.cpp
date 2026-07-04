@@ -7,6 +7,8 @@
 #include <thread>
 #include <fstream>
 #include <random>
+#include <filesystem>
+#include <cctype>
 
 #include "lexer/Lexer.h"
 #include "parser/Parser.h"
@@ -59,6 +61,78 @@ VM::VM() {
             std::get<std::shared_ptr<VionArray>>(args[0].data)->elements.push_back(args[1]);
         }
         return Value::nil();
+    });
+
+    defineNative("file_read", [](int argCount, Value* args) {
+        if (argCount != 1 || args[0].type != ValueType::STRING) return Value::nil();
+        std::ifstream file(std::get<std::string>(args[0].data));
+        if (!file.is_open()) return Value::nil();
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+        return Value::string(buffer.str());
+    });
+
+    defineNative("file_write", [](int argCount, Value* args) {
+        if (argCount != 2 || args[0].type != ValueType::STRING || args[1].type != ValueType::STRING) return Value::boolean(false);
+        std::ofstream file(std::get<std::string>(args[0].data));
+        if (!file.is_open()) return Value::boolean(false);
+        file << std::get<std::string>(args[1].data);
+        return Value::boolean(true);
+    });
+
+    defineNative("json_stringify", [](int argCount, Value* args) {
+        if (argCount != 1) return Value::nil();
+        return Value::string(args[0].toJsonString());
+    });
+
+    defineNative("json_parse", [](int argCount, Value* args) {
+        if (argCount != 1 || args[0].type != ValueType::STRING) return Value::nil();
+        std::string jsonStr = std::get<std::string>(args[0].data);
+        std::string source = "let __json = " + jsonStr;
+        Lexer lexer(source);
+        auto tokens = lexer.scanTokens();
+        Parser parser(std::move(tokens));
+        auto program = parser.parse();
+        Compiler compiler(nullptr, FunctionType::TYPE_SCRIPT);
+        auto function = compiler.compile(program);
+        if (!function) return Value::nil();
+        VM jsonVM;
+        jsonVM.interpret(function);
+        return jsonVM.globals["__json"];
+    });
+
+    defineNative("to_upper", [](int argCount, Value* args) {
+        if (argCount != 1 || args[0].type != ValueType::STRING) return Value::nil();
+        std::string s = std::get<std::string>(args[0].data);
+        for (char& c : s) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        return Value::string(s);
+    });
+
+    defineNative("to_lower", [](int argCount, Value* args) {
+        if (argCount != 1 || args[0].type != ValueType::STRING) return Value::nil();
+        std::string s = std::get<std::string>(args[0].data);
+        for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return Value::string(s);
+    });
+    
+    defineNative("split", [](int argCount, Value* args) {
+        if (argCount != 2 || args[0].type != ValueType::STRING || args[1].type != ValueType::STRING) return Value::nil();
+        std::string s = std::get<std::string>(args[0].data);
+        std::string delim = std::get<std::string>(args[1].data);
+        auto arr = std::make_shared<VionArray>();
+        if (delim.empty()) {
+            for (char c : s) arr->elements.push_back(Value::string(std::string(1, c)));
+            return Value::array(arr);
+        }
+        size_t start = 0;
+        size_t end = s.find(delim);
+        while (end != std::string::npos) {
+            arr->elements.push_back(Value::string(s.substr(start, end - start)));
+            start = end + delim.length();
+            end = s.find(delim, start);
+        }
+        arr->elements.push_back(Value::string(s.substr(start)));
+        return Value::array(arr);
     });
 
     defineNative("pop", [](int argCount, Value* args) {
@@ -159,7 +233,8 @@ Value VM::readConstant() {
     return frames.back().function->chunk->constants[readByte()];
 }
 
-InterpretResult VM::interpret(std::shared_ptr<BytecodeFunction> function) {
+InterpretResult VM::interpret(std::shared_ptr<BytecodeFunction> function, const std::string& scriptPath) {
+    currentScriptPath = scriptPath;
     frames.clear();
     stack.clear();
     
@@ -560,15 +635,21 @@ InterpretResult VM::run() {
             case static_cast<uint8_t>(OpCode::OP_IMPORT): {
                 Value modulePath = pop();
                 if (modulePath.type != ValueType::STRING) {
-                    std::cerr << "Runtime Error: import path must be a string.\n";
-                    return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                    if (!handleError("import path must be a string.")) return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                    break;
                 }
                 std::string path = std::get<std::string>(modulePath.data);
                 
-                std::ifstream file(path);
+                std::filesystem::path importPath(path);
+                if (importPath.is_relative() && !currentScriptPath.empty()) {
+                    importPath = std::filesystem::path(currentScriptPath).parent_path() / importPath;
+                }
+                std::string absPath = std::filesystem::absolute(importPath).string();
+                
+                std::ifstream file(absPath);
                 if (!file.is_open()) {
-                    std::cerr << "Runtime Error: Cannot open module file '" << path << "'.\n";
-                    return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                    if (!handleError("Cannot open module file '" + absPath + "'.")) return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                    break;
                 }
                 std::stringstream buffer;
                 buffer << file.rdbuf();
@@ -583,15 +664,15 @@ InterpretResult VM::run() {
                 auto function = compiler.compile(program);
                 
                 if (!function) {
-                    std::cerr << "Runtime Error: Failed to compile module '" << path << "'.\n";
-                    return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                    if (!handleError("Failed to compile module '" + absPath + "'.")) return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                    break;
                 }
                 
                 VM moduleVM;
-                InterpretResult result = moduleVM.interpret(function);
+                InterpretResult result = moduleVM.interpret(function, absPath);
                 if (result != InterpretResult::INTERPRET_OK) {
-                    std::cerr << "Runtime Error: Module execution failed '" << path << "'.\n";
-                    return result;
+                    if (!handleError("Module execution failed '" + absPath + "'.")) return InterpretResult::INTERPRET_RUNTIME_ERROR;
+                    break;
                 }
                 
                 auto moduleExports = std::make_shared<VionMap>();

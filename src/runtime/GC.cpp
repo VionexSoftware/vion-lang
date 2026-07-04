@@ -1,4 +1,25 @@
 #include "runtime/GC.h"
+#include "runtime/Value.h"
+#include "vm/VM.h"
+
+void VionArray::trace(std::vector<std::shared_ptr<GCObject>>& children) const {
+    for (const auto& el : elements) {
+        if (el.type == ValueType::ARRAY) children.push_back(std::static_pointer_cast<GCObject>(std::get<std::shared_ptr<VionArray>>(el.data)));
+        else if (el.type == ValueType::MAP) children.push_back(std::static_pointer_cast<GCObject>(std::get<std::shared_ptr<VionMap>>(el.data)));
+        else if (el.type == ValueType::BYTECODE_FUNCTION) children.push_back(std::static_pointer_cast<GCObject>(std::get<std::shared_ptr<BytecodeFunction>>(el.data)));
+        else if (el.type == ValueType::NATIVE_FUNCTION) children.push_back(std::static_pointer_cast<GCObject>(std::get<std::shared_ptr<VMNativeFunction>>(el.data)));
+    }
+}
+
+void VionMap::trace(std::vector<std::shared_ptr<GCObject>>& children) const {
+    for (const auto& pair : entries) {
+        const auto& el = pair.second;
+        if (el.type == ValueType::ARRAY) children.push_back(std::static_pointer_cast<GCObject>(std::get<std::shared_ptr<VionArray>>(el.data)));
+        else if (el.type == ValueType::MAP) children.push_back(std::static_pointer_cast<GCObject>(std::get<std::shared_ptr<VionMap>>(el.data)));
+        else if (el.type == ValueType::BYTECODE_FUNCTION) children.push_back(std::static_pointer_cast<GCObject>(std::get<std::shared_ptr<BytecodeFunction>>(el.data)));
+        else if (el.type == ValueType::NATIVE_FUNCTION) children.push_back(std::static_pointer_cast<GCObject>(std::get<std::shared_ptr<VMNativeFunction>>(el.data)));
+    }
+}
 
 void GC::registerObject(std::weak_ptr<GCObject> obj) {
     std::lock_guard<std::mutex> lock(mutex_);

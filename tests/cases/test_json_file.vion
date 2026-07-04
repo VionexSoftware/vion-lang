@@ -1,0 +1,30 @@
+let data = {
+    "name": "Vion",
+    "version": 1.0,
+    "features": ["json", "file", "try-catch"]
+}
+
+print "--- Testing json_stringify ---"
+let jsonString = json_stringify(data)
+print jsonString
+
+print "--- Testing file_write ---"
+let success = file_write("test_output.json", jsonString)
+print "Write success: ", success
+
+print "--- Testing file_read ---"
+let readString = file_read("test_output.json")
+print "Read string: ", readString
+
+print "--- Testing json_parse ---"
+let parsed = json_parse(readString)
+print "Parsed name: ", parsed.name
+print "Parsed version: ", parsed.version
+print "Parsed features length: ", len(parsed.features)
+
+print "--- Testing string utilities ---"
+let text = "Hello World Vion"
+print "Original: ", text
+print "Upper: ", to_upper(text)
+print "Lower: ", to_lower(text)
+print "Split: ", split(text, " ")
