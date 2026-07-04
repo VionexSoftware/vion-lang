@@ -56,7 +56,7 @@ $Cases = @(
         Name = "short version"
         Args = @("-v")
         ExitCode = 0
-        Output = "Vion v0.3.0"
+        Output = "Vion v0.4.0"
     },
     @{
         Name = "hello"
