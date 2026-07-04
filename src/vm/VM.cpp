@@ -9,12 +9,184 @@
 #include <random>
 #include <filesystem>
 #include <cctype>
+#include <array>
+#include <memory>
+#include <cstdio>
+#include <sstream>
 
 #include "lexer/Lexer.h"
 #include "parser/Parser.h"
 #include "compiler/Compiler.h"
 
+// ── DB helper utilities ───────────────────────────────────────────────────
+
+// Run a shell command and return its combined stdout+stderr
+static std::string vion_runSubprocess(const std::string& cmd) {
+    std::array<char, 256> buffer;
+    std::string result;
+#ifdef _WIN32
+    std::unique_ptr<FILE, decltype(&_pclose)> pipe(_popen(cmd.c_str(), "r"), _pclose);
+#else
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"), pclose);
+#endif
+    if (!pipe) return "";
+    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe.get()) != nullptr)
+        result += buffer.data();
+    return result;
+}
+
+// Escape a SQL string for embedding in a shell-quoted command argument
+static std::string vion_escapeSql(const std::string& sql) {
+    std::string out;
+    out.reserve(sql.size() + 8);
+    for (char c : sql) {
+        if (c == '"')       out += "\\\"";
+        else if (c == '\\') out += "\\\\";
+        else                out += c;
+    }
+    return out;
+}
+
+// Parse CSV (RFC 4180-ish) — first line is header row
+static std::vector<std::unordered_map<std::string,std::string>>
+vion_parseCsv(const std::string& text) {
+    std::vector<std::unordered_map<std::string,std::string>> result;
+
+    auto parseRow = [](const std::string& row) {
+        std::vector<std::string> fields;
+        std::string field;
+        bool inQ = false;
+        for (size_t i = 0; i < row.size(); i++) {
+            char c = row[i];
+            if (inQ) {
+                if (c == '"') {
+                    if (i + 1 < row.size() && row[i+1] == '"') { field += '"'; i++; }
+                    else inQ = false;
+                } else field += c;
+            } else {
+                if (c == '"') inQ = true;
+                else if (c == ',') { fields.push_back(field); field.clear(); }
+                else field += c;
+            }
+        }
+        fields.push_back(field);
+        return fields;
+    };
+
+    std::vector<std::string> lines;
+    std::istringstream ss(text);
+    std::string line;
+    while (std::getline(ss, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (!line.empty()) lines.push_back(line);
+    }
+    if (lines.empty()) return result;
+
+    auto headers = parseRow(lines[0]);
+    for (size_t i = 1; i < lines.size(); i++) {
+        auto cells = parseRow(lines[i]);
+        std::unordered_map<std::string,std::string> row;
+        for (size_t j = 0; j < headers.size(); j++)
+            row[headers[j]] = (j < cells.size()) ? cells[j] : "";
+        result.push_back(row);
+    }
+    return result;
+}
+
+// Parse TSV (mysql --batch --silent output) — first line is header row
+static std::vector<std::unordered_map<std::string,std::string>>
+vion_parseTsv(const std::string& text) {
+    std::vector<std::unordered_map<std::string,std::string>> result;
+
+    auto splitTab = [](const std::string& row) {
+        std::vector<std::string> fields;
+        std::string field;
+        for (char c : row) {
+            if (c == '\t') { fields.push_back(field); field.clear(); }
+            else field += c;
+        }
+        fields.push_back(field);
+        return fields;
+    };
+
+    std::vector<std::string> lines;
+    std::istringstream ss(text);
+    std::string line;
+    while (std::getline(ss, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (!line.empty()) lines.push_back(line);
+    }
+    if (lines.empty()) return result;
+
+    auto headers = splitTab(lines[0]);
+    for (size_t i = 1; i < lines.size(); i++) {
+        auto cells = splitTab(lines[i]);
+        std::unordered_map<std::string,std::string> row;
+        for (size_t j = 0; j < headers.size(); j++)
+            row[headers[j]] = (j < cells.size()) ? cells[j] : "";
+        result.push_back(row);
+    }
+    return result;
+}
+
+// Convert a vector of string-maps (from CSV/TSV) to a Vion array-of-maps Value.
+// Numbers are auto-detected; "NULL" / "\N" become nil.
+static Value vion_rowsToValue(
+        const std::vector<std::unordered_map<std::string,std::string>>& parsed) {
+    auto arr = std::make_shared<VionArray>();
+    for (const auto& rowData : parsed) {
+        auto row = std::make_shared<VionMap>();
+        for (const auto& [k, v] : rowData) {
+            if (v == "NULL" || v == "\\N") {
+                row->entries[k] = Value::nil();
+            } else {
+                // Try numeric coercion
+                try {
+                    size_t pos;
+                    double d = std::stod(v, &pos);
+                    if (pos == v.size())
+                        row->entries[k] = Value::number(d);
+                    else
+                        row->entries[k] = Value::string(v);
+                } catch (...) {
+                    row->entries[k] = Value::string(v);
+                }
+            }
+        }
+        arr->elements.push_back(Value::map(row));
+    }
+    return Value::array(arr);
+}
+
+// Parse mysql://user:pass@host:port/db DSN into VionDB fields
+static void vion_parseMysqlDsn(const std::string& dsn, VionDB& conn) {
+    // Strip scheme
+    size_t schemeEnd = dsn.find("://");
+    if (schemeEnd == std::string::npos) return;
+    std::string rest = dsn.substr(schemeEnd + 3);
+
+    // user:pass @ host:port/db
+    size_t atPos = rest.rfind('@');
+    std::string userPass = (atPos != std::string::npos) ? rest.substr(0, atPos) : "";
+    std::string hostDb   = (atPos != std::string::npos) ? rest.substr(atPos + 1) : rest;
+
+    // Parse user:pass
+    size_t cp = userPass.find(':');
+    conn.user     = (cp != std::string::npos) ? userPass.substr(0, cp) : userPass;
+    conn.password = (cp != std::string::npos) ? userPass.substr(cp + 1) : "";
+
+    // Parse host:port/db
+    size_t slash = hostDb.find('/');
+    conn.database = (slash != std::string::npos) ? hostDb.substr(slash + 1) : "";
+    std::string hostPort = (slash != std::string::npos) ? hostDb.substr(0, slash) : hostDb;
+    size_t colon = hostPort.find(':');
+    conn.host = (colon != std::string::npos) ? hostPort.substr(0, colon) : hostPort;
+    conn.port = (colon != std::string::npos) ? hostPort.substr(colon + 1) : "3306";
+    if (conn.host.empty()) conn.host = "127.0.0.1";
+}
+
 VM::VM() {
+
     defineNative("print", [](int argCount, Value* args) {
         for (int i = 0; i < argCount; ++i) {
             std::cout << args[i].toString();
@@ -78,6 +250,85 @@ VM::VM() {
         if (!file.is_open()) return Value::boolean(false);
         file << std::get<std::string>(args[1].data);
         return Value::boolean(true);
+    });
+
+    defineNative("http_get", [](int argCount, Value* args) {
+        if (argCount != 1 || args[0].type != ValueType::STRING) return Value::nil();
+        std::string url = std::get<std::string>(args[0].data);
+        
+        std::string command = "curl -s \"" + url + "\"";
+        std::array<char, 128> buffer;
+        std::string result;
+#ifdef _WIN32
+        std::unique_ptr<FILE, decltype(&_pclose)> pipe(_popen(command.c_str(), "r"), _pclose);
+#else
+        std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(command.c_str(), "r"), pclose);
+#endif
+        if (!pipe) {
+            return Value::nil();
+        }
+        while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe.get()) != nullptr) {
+            result += buffer.data();
+        }
+        return Value::string(result);
+    });
+
+    defineNative("http_request", [](int argCount, Value* args) {
+        if (argCount != 2 || args[0].type != ValueType::STRING || args[1].type != ValueType::MAP) return Value::nil();
+        
+        std::string url = std::get<std::string>(args[0].data);
+        auto optionsMap = std::get<std::shared_ptr<VionMap>>(args[1].data);
+        
+        std::string method = "GET";
+        if (optionsMap->entries.count("method") && optionsMap->entries["method"].type == ValueType::STRING) {
+            method = std::get<std::string>(optionsMap->entries["method"].data);
+        }
+        
+        std::string command = "curl -s -X " + method + " ";
+        
+        if (optionsMap->entries.count("headers") && optionsMap->entries["headers"].type == ValueType::MAP) {
+            auto headersMap = std::get<std::shared_ptr<VionMap>>(optionsMap->entries["headers"].data);
+            for (const auto& pair : headersMap->entries) {
+                if (pair.second.type == ValueType::STRING) {
+                    std::string headerVal = std::get<std::string>(pair.second.data);
+                    command += "-H \"" + pair.first + ": " + headerVal + "\" ";
+                }
+            }
+        }
+        
+        std::string tempFile = ".vion_tmp_body.json";
+        bool hasBody = false;
+        if (optionsMap->entries.count("body") && optionsMap->entries["body"].type == ValueType::STRING) {
+            std::string body = std::get<std::string>(optionsMap->entries["body"].data);
+            std::ofstream file(tempFile);
+            if (file.is_open()) {
+                file << body;
+                file.close();
+                command += "-d @" + tempFile + " ";
+                hasBody = true;
+            }
+        }
+        
+        command += "\"" + url + "\"";
+        
+        std::array<char, 128> buffer;
+        std::string result;
+#ifdef _WIN32
+        std::unique_ptr<FILE, decltype(&_pclose)> pipe(_popen(command.c_str(), "r"), _pclose);
+#else
+        std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(command.c_str(), "r"), pclose);
+#endif
+        if (pipe) {
+            while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe.get()) != nullptr) {
+                result += buffer.data();
+            }
+        }
+        
+        if (hasBody) {
+            std::filesystem::remove(tempFile);
+        }
+        
+        return Value::string(result);
     });
 
     defineNative("json_stringify", [](int argCount, Value* args) {
@@ -188,6 +439,311 @@ VM::VM() {
             return Value::string(s);
         }
         return Value::nil();
+    });
+
+    // ── Database — multi-driver (SQLite/PostgreSQL/MySQL) ─────────────────
+
+    // db_open(path) — backward-compat SQLite shortcut
+    defineNative("db_open", [](int argCount, Value* args) -> Value {
+        if (argCount != 1 || args[0].type != ValueType::STRING) {
+            std::cerr << "db_open: expected string path\n";
+            return Value::nil();
+        }
+        std::string path = std::get<std::string>(args[0].data);
+        auto conn = std::make_shared<VionDB>();
+        conn->driver = DBDriver::SQLITE;
+        int rc = sqlite3_open(path.c_str(), &conn->db);
+        if (rc != SQLITE_OK) {
+            std::cerr << "db_open: " << sqlite3_errmsg(conn->db) << "\n";
+            sqlite3_close(conn->db);
+            conn->db = nullptr; conn->closed = true;
+            return Value::nil();
+        }
+        sqlite3_exec(conn->db, "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
+        return Value::db(conn);
+    });
+
+    // db_connect(dsn) — unified entry point for all drivers
+    //   sqlite:./path.db          SQLite file
+    //   sqlite::memory:           SQLite in-memory
+    //   postgresql://user:pass@host:port/db
+    //   mysql://user:pass@host:port/db
+    defineNative("db_connect", [](int argCount, Value* args) -> Value {
+        if (argCount != 1 || args[0].type != ValueType::STRING) {
+            std::cerr << "db_connect: expected DSN string\n";
+            return Value::nil();
+        }
+        std::string dsn = std::get<std::string>(args[0].data);
+        auto conn = std::make_shared<VionDB>();
+
+        if (dsn.size() >= 7 && dsn.substr(0, 7) == "sqlite:") {
+            // SQLite: sqlite:./path  or  sqlite::memory:
+            conn->driver = DBDriver::SQLITE;
+            std::string path = dsn.substr(7);
+            int rc = sqlite3_open(path.c_str(), &conn->db);
+            if (rc != SQLITE_OK) {
+                std::cerr << "db_connect (sqlite): " << sqlite3_errmsg(conn->db) << "\n";
+                sqlite3_close(conn->db);
+                conn->db = nullptr; conn->closed = true;
+                return Value::nil();
+            }
+            sqlite3_exec(conn->db, "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
+        } else if ((dsn.size() >= 13 && dsn.substr(0, 13) == "postgresql://") ||
+                   (dsn.size() >= 11 && dsn.substr(0, 11) == "postgres://")) {
+            // PostgreSQL: store full DSN for psql CLI
+            conn->driver = DBDriver::POSTGRES;
+            conn->connstr = dsn;
+        } else if ((dsn.size() >= 8 && dsn.substr(0, 8) == "mysql://") ||
+                   (dsn.size() >= 10 && dsn.substr(0, 10) == "mariadb://")) {
+            // MySQL / MariaDB
+            conn->driver = DBDriver::MYSQL;
+            vion_parseMysqlDsn(dsn, *conn);
+        } else {
+            std::cerr << "db_connect: unknown scheme. Use sqlite:, postgresql://, or mysql://\n";
+            return Value::nil();
+        }
+        return Value::db(conn);
+    });
+
+    // db_close(db)
+    defineNative("db_close", [](int argCount, Value* args) -> Value {
+        if (argCount != 1 || args[0].type != ValueType::DB_CONNECTION) return Value::nil();
+        auto conn = std::get<std::shared_ptr<VionDB>>(args[0].data);
+        if (conn->closed) return Value::nil();
+        if (conn->driver == DBDriver::SQLITE && conn->db) {
+            sqlite3_close(conn->db);
+            conn->db = nullptr;
+        }
+        conn->closed = true;
+        return Value::nil();
+    });
+
+    // db_exec(db, sql) → boolean — for CREATE/INSERT/UPDATE/DELETE
+    defineNative("db_exec", [](int argCount, Value* args) -> Value {
+        if (argCount < 2 || args[0].type != ValueType::DB_CONNECTION || args[1].type != ValueType::STRING)
+            return Value::boolean(false);
+        auto conn = std::get<std::shared_ptr<VionDB>>(args[0].data);
+        if (conn->closed) { std::cerr << "db_exec: connection is closed\n"; return Value::boolean(false); }
+        std::string sql = std::get<std::string>(args[1].data);
+
+        if (conn->driver == DBDriver::SQLITE) {
+            if (!conn->db) return Value::boolean(false);
+            char* errMsg = nullptr;
+            int rc = sqlite3_exec(conn->db, sql.c_str(), nullptr, nullptr, &errMsg);
+            if (rc != SQLITE_OK) {
+                std::cerr << "db_exec error: " << errMsg << "\n";
+                sqlite3_free(errMsg);
+                return Value::boolean(false);
+            }
+            return Value::boolean(true);
+
+        } else if (conn->driver == DBDriver::POSTGRES) {
+            std::string cmd = "psql \"" + conn->connstr + "\" -c \"" + vion_escapeSql(sql) + "\" 2>&1";
+            std::string out = vion_runSubprocess(cmd);
+            bool ok = out.find("ERROR:") == std::string::npos &&
+                      out.find("error:") == std::string::npos &&
+                      out.find("FATAL:") == std::string::npos;
+            if (!ok) std::cerr << "db_exec (pg): " << out;
+            return Value::boolean(ok);
+
+        } else { // MYSQL
+            std::string cmd = "mysql --host=" + conn->host +
+                              " --port=" + conn->port +
+                              " --user=" + conn->user +
+                              " --password=" + conn->password +
+                              " --database=" + conn->database +
+                              " -e \"" + vion_escapeSql(sql) + "\" 2>&1";
+            std::string out = vion_runSubprocess(cmd);
+            bool ok = out.find("ERROR") == std::string::npos &&
+                      out.find("error") == std::string::npos;
+            if (!ok) std::cerr << "db_exec (mysql): " << out;
+            return Value::boolean(ok);
+        }
+    });
+
+    // db_query(db, sql) → array of maps
+    defineNative("db_query", [](int argCount, Value* args) -> Value {
+        if (argCount < 2 || args[0].type != ValueType::DB_CONNECTION || args[1].type != ValueType::STRING)
+            return Value::array();
+        auto conn = std::get<std::shared_ptr<VionDB>>(args[0].data);
+        if (conn->closed) { std::cerr << "db_query: connection is closed\n"; return Value::array(); }
+        std::string sql = std::get<std::string>(args[1].data);
+
+        if (conn->driver == DBDriver::SQLITE) {
+            if (!conn->db) return Value::array();
+            auto rows = std::make_shared<VionArray>();
+            sqlite3_stmt* stmt = nullptr;
+            if (sqlite3_prepare_v2(conn->db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+                std::cerr << "db_query: " << sqlite3_errmsg(conn->db) << "\n";
+                return Value::array();
+            }
+            int colCount = sqlite3_column_count(stmt);
+            while (sqlite3_step(stmt) == SQLITE_ROW) {
+                auto row = std::make_shared<VionMap>();
+                for (int i = 0; i < colCount; i++) {
+                    std::string colName = sqlite3_column_name(stmt, i);
+                    int colType = sqlite3_column_type(stmt, i);
+                    Value cell;
+                    switch (colType) {
+                        case SQLITE_INTEGER: cell = Value::number(static_cast<double>(sqlite3_column_int64(stmt, i))); break;
+                        case SQLITE_FLOAT:   cell = Value::number(sqlite3_column_double(stmt, i)); break;
+                        case SQLITE_TEXT: {
+                            const char* t = reinterpret_cast<const char*>(sqlite3_column_text(stmt, i));
+                            cell = Value::string(t ? t : "");
+                            break;
+                        }
+                        case SQLITE_BLOB: {
+                            int bytes = sqlite3_column_bytes(stmt, i);
+                            cell = Value::string("<blob:" + std::to_string(bytes) + "bytes>");
+                            break;
+                        }
+                        case SQLITE_NULL: default: cell = Value::nil(); break;
+                    }
+                    row->entries[colName] = cell;
+                }
+                rows->elements.push_back(Value::map(row));
+            }
+            sqlite3_finalize(stmt);
+            return Value::array(rows);
+
+        } else if (conn->driver == DBDriver::POSTGRES) {
+            std::string cmd = "psql \"" + conn->connstr + "\" --csv -c \"" + vion_escapeSql(sql) + "\" 2>&1";
+            std::string out = vion_runSubprocess(cmd);
+            if (out.find("ERROR:") != std::string::npos || out.find("FATAL:") != std::string::npos) {
+                std::cerr << "db_query (pg): " << out;
+                return Value::array();
+            }
+            return vion_rowsToValue(vion_parseCsv(out));
+
+        } else { // MYSQL
+            std::string cmd = "mysql --host=" + conn->host +
+                              " --port=" + conn->port +
+                              " --user=" + conn->user +
+                              " --password=" + conn->password +
+                              " --database=" + conn->database +
+                              " --batch --silent -e \"" + vion_escapeSql(sql) + "\" 2>&1";
+            std::string out = vion_runSubprocess(cmd);
+            if (out.find("ERROR") != std::string::npos) {
+                std::cerr << "db_query (mysql): " << out;
+                return Value::array();
+            }
+            return vion_rowsToValue(vion_parseTsv(out));
+        }
+    });
+
+    // db_query_one(db, sql) → map | nil
+    defineNative("db_query_one", [](int argCount, Value* args) -> Value {
+        if (argCount < 2 || args[0].type != ValueType::DB_CONNECTION || args[1].type != ValueType::STRING)
+            return Value::nil();
+        auto conn = std::get<std::shared_ptr<VionDB>>(args[0].data);
+        if (conn->closed) { std::cerr << "db_query_one: connection is closed\n"; return Value::nil(); }
+        std::string sql = std::get<std::string>(args[1].data);
+
+        if (conn->driver == DBDriver::SQLITE) {
+            if (!conn->db) return Value::nil();
+            sqlite3_stmt* stmt = nullptr;
+            if (sqlite3_prepare_v2(conn->db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+                std::cerr << "db_query_one: " << sqlite3_errmsg(conn->db) << "\n";
+                return Value::nil();
+            }
+            int colCount = sqlite3_column_count(stmt);
+            Value result = Value::nil();
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                auto row = std::make_shared<VionMap>();
+                for (int i = 0; i < colCount; i++) {
+                    std::string colName = sqlite3_column_name(stmt, i);
+                    int colType = sqlite3_column_type(stmt, i);
+                    Value cell;
+                    switch (colType) {
+                        case SQLITE_INTEGER: cell = Value::number(static_cast<double>(sqlite3_column_int64(stmt, i))); break;
+                        case SQLITE_FLOAT:   cell = Value::number(sqlite3_column_double(stmt, i)); break;
+                        case SQLITE_TEXT: {
+                            const char* t = reinterpret_cast<const char*>(sqlite3_column_text(stmt, i));
+                            cell = Value::string(t ? t : "");
+                            break;
+                        }
+                        case SQLITE_NULL: default: cell = Value::nil(); break;
+                    }
+                    row->entries[colName] = cell;
+                }
+                result = Value::map(row);
+            }
+            sqlite3_finalize(stmt);
+            return result;
+
+        } else {
+            // For PG/MySQL: reuse db_query and take first row
+            // Build a temporary value by reusing the query logic inline
+            // We call db_query logic and take first element
+            Value arr;
+            if (conn->driver == DBDriver::POSTGRES) {
+                std::string cmd = "psql \"" + conn->connstr + "\" --csv -c \"" + vion_escapeSql(sql) + "\" 2>&1";
+                std::string out = vion_runSubprocess(cmd);
+                if (out.find("ERROR:") != std::string::npos || out.find("FATAL:") != std::string::npos) {
+                    std::cerr << "db_query_one (pg): " << out;
+                    return Value::nil();
+                }
+                arr = vion_rowsToValue(vion_parseCsv(out));
+            } else {
+                std::string cmd = "mysql --host=" + conn->host +
+                                  " --port=" + conn->port +
+                                  " --user=" + conn->user +
+                                  " --password=" + conn->password +
+                                  " --database=" + conn->database +
+                                  " --batch --silent -e \"" + vion_escapeSql(sql) + "\" 2>&1";
+                std::string out = vion_runSubprocess(cmd);
+                if (out.find("ERROR") != std::string::npos) {
+                    std::cerr << "db_query_one (mysql): " << out;
+                    return Value::nil();
+                }
+                arr = vion_rowsToValue(vion_parseTsv(out));
+            }
+            auto& elems = std::get<std::shared_ptr<VionArray>>(arr.data)->elements;
+            return elems.empty() ? Value::nil() : elems[0];
+        }
+    });
+
+    // db_last_id(db) → number
+    defineNative("db_last_id", [](int argCount, Value* args) -> Value {
+        if (argCount != 1 || args[0].type != ValueType::DB_CONNECTION) return Value::nil();
+        auto conn = std::get<std::shared_ptr<VionDB>>(args[0].data);
+        if (conn->closed) return Value::nil();
+        if (conn->driver == DBDriver::SQLITE) {
+            if (!conn->db) return Value::nil();
+            return Value::number(static_cast<double>(sqlite3_last_insert_rowid(conn->db)));
+        } else if (conn->driver == DBDriver::POSTGRES) {
+            std::string cmd = "psql \"" + conn->connstr + "\" -t -A -c \"SELECT lastval()\" 2>&1";
+            std::string out = vion_runSubprocess(cmd);
+            out.erase(out.find_last_not_of(" \t\r\n") + 1);
+            try { return Value::number(std::stod(out)); } catch (...) { return Value::nil(); }
+        } else {
+            std::string cmd = "mysql --host=" + conn->host +
+                              " --port=" + conn->port +
+                              " --user=" + conn->user +
+                              " --password=" + conn->password +
+                              " --database=" + conn->database +
+                              " --batch --silent -e \"SELECT LAST_INSERT_ID()\" 2>&1";
+            std::string out = vion_runSubprocess(cmd);
+            // Skip header line (column name), get second line
+            std::istringstream ss(out);
+            std::string line1, line2;
+            std::getline(ss, line1); std::getline(ss, line2);
+            if (!line2.empty() && line2.back() == '\r') line2.pop_back();
+            try { return Value::number(std::stod(line2)); } catch (...) { return Value::nil(); }
+        }
+    });
+
+    // db_changes(db) → number
+    defineNative("db_changes", [](int argCount, Value* args) -> Value {
+        if (argCount != 1 || args[0].type != ValueType::DB_CONNECTION) return Value::nil();
+        auto conn = std::get<std::shared_ptr<VionDB>>(args[0].data);
+        if (conn->closed) return Value::nil();
+        if (conn->driver == DBDriver::SQLITE) {
+            if (!conn->db) return Value::nil();
+            return Value::number(static_cast<double>(sqlite3_changes(conn->db)));
+        }
+        // PG/MySQL: not directly available via CLI; return -1 as "unknown"
+        return Value::number(-1);
     });
 }
 

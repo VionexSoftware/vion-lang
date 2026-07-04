@@ -1,0 +1,57 @@
+// database.vion — demonstrates SQLite database connectivity in Vion
+
+// ── 1. Open database (creates file if not exists, or ":memory:" for in-memory)
+let db = db_open(":memory:")
+print "Opened: " + type(db)   // db
+
+// ── 2. Create table
+db_exec(db, "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, age INTEGER, score REAL)")
+
+// ── 3. Insert rows
+db_exec(db, "INSERT INTO users (name, age, score) VALUES ('Alice', 30, 95.5)")
+db_exec(db, "INSERT INTO users (name, age, score) VALUES ('Bob', 25, 87.0)")
+db_exec(db, "INSERT INTO users (name, age, score) VALUES ('Charlie', 35, 91.3)")
+
+print "Inserted rows: " + str(db_changes(db))
+print "Last insert ID: " + str(db_last_id(db))
+
+// ── 4. Query all rows
+print ""
+print "--- All Users ---"
+let users = db_query(db, "SELECT * FROM users ORDER BY name")
+for user in users {
+    print user["name"] + " (age=" + str(user["age"]) + ", score=" + str(user["score"]) + ")"
+}
+
+// ── 5. Query single row
+print ""
+print "--- Query One ---"
+let alice = db_query_one(db, "SELECT * FROM users WHERE name = 'Alice'")
+if alice != nil {
+    print "Found: " + alice["name"] + ", age=" + str(alice["age"])
+}
+
+// ── 6. UPDATE
+db_exec(db, "UPDATE users SET score = 99.0 WHERE name = 'Alice'")
+print ""
+print "Updated " + str(db_changes(db)) + " row(s)"
+
+// ── 7. Aggregate query
+let stats = db_query_one(db, "SELECT COUNT(*) as count, AVG(score) as avg_score FROM users")
+print "Count: " + str(stats["count"])
+print "Avg score: " + str(stats["avg_score"])
+
+// ── 8. DELETE
+db_exec(db, "DELETE FROM users WHERE age < 28")
+print "After delete, remaining: " + str(len(db_query(db, "SELECT * FROM users")))
+
+// ── 9. Transactions
+db_exec(db, "BEGIN TRANSACTION")
+db_exec(db, "INSERT INTO users (name, age, score) VALUES ('Dave', 22, 70.0)")
+db_exec(db, "INSERT INTO users (name, age, score) VALUES ('Eve', 28, 88.5)")
+db_exec(db, "COMMIT")
+print "After transaction insert: " + str(len(db_query(db, "SELECT * FROM users"))) + " users"
+
+// ── 10. Close
+db_close(db)
+print "Database closed."

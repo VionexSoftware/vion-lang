@@ -1,0 +1,39 @@
+// database_mysql.vion — MySQL/MariaDB demo via mysql CLI
+// Requires: mysql client in PATH and a running MySQL/MariaDB server
+//
+// Usage: vion run examples/database_mysql.vion
+
+let db = db_connect("mysql://root:password@localhost:3306/testdb")
+if db == nil {
+    print "Could not connect to MySQL. Is mysql client in PATH?"
+    return
+}
+print "Connected to MySQL/MariaDB"
+
+// Create table (AUTO_INCREMENT = MySQL auto-increment)
+db_exec(db, "CREATE TABLE IF NOT EXISTS orders (id INT AUTO_INCREMENT PRIMARY KEY, item VARCHAR(100), qty INT, total DECIMAL(10,2))")
+
+// Insert rows
+db_exec(db, "INSERT INTO orders (item, qty, total) VALUES ('Widget', 10, 49.99)")
+db_exec(db, "INSERT INTO orders (item, qty, total) VALUES ('Gadget', 5, 149.95)")
+db_exec(db, "INSERT INTO orders (item, qty, total) VALUES ('Donut', 100, 24.00)")
+
+// Query
+print ""
+print "--- Orders ---"
+let rows = db_query(db, "SELECT * FROM orders ORDER BY total DESC")
+for row in rows {
+    print row["item"] + " x" + str(row["qty"]) + " = $" + str(row["total"])
+}
+
+// Query one — most expensive
+let top = db_query_one(db, "SELECT * FROM orders ORDER BY total DESC LIMIT 1")
+if top != nil {
+    print ""
+    print "Top order: " + top["item"] + " ($" + str(top["total"]) + ")"
+}
+
+// Cleanup
+db_exec(db, "DROP TABLE IF EXISTS orders")
+db_close(db)
+print "Done."

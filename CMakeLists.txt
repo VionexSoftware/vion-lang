@@ -7,6 +7,9 @@ include(GNUInstallDirs)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Allow C sources (sqlite3 amalgamation)
+enable_language(C)
+
 add_executable(vion
     src/main.cpp
     src/lexer/Lexer.cpp
@@ -15,6 +18,13 @@ add_executable(vion
     src/vm/Chunk.cpp
     src/vm/VM.cpp
     src/compiler/Compiler.cpp
+    src/sqlite/sqlite3.c
+)
+
+# SQLite: single-threaded mode (scripting lang doesn't need MT), no deprecated warnings
+target_compile_definitions(vion PRIVATE
+    SQLITE_THREADSAFE=0
+    SQLITE_OMIT_LOAD_EXTENSION
 )
 
 target_include_directories(vion PRIVATE src)

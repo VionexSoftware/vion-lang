@@ -1,0 +1,47 @@
+// database_pg.vion — PostgreSQL demo via psql CLI
+// Requires: psql in PATH and a running PostgreSQL server
+//
+// Usage: vion run examples/database_pg.vion
+//   (set your own connection string below)
+
+let connstr = "postgresql://postgres:password@localhost:5432/testdb"
+
+let db = db_connect(connstr)
+if db == nil {
+    print "Could not connect to PostgreSQL. Is psql in PATH?"
+    return
+}
+print "Connected to PostgreSQL"
+
+// Create table (SERIAL = auto-increment in PG)
+db_exec(db, "CREATE TABLE IF NOT EXISTS products (id SERIAL PRIMARY KEY, name TEXT NOT NULL, price REAL, in_stock BOOLEAN)")
+
+// Insert rows
+db_exec(db, "INSERT INTO products (name, price, in_stock) VALUES ('Apple', 1.5, true)")
+db_exec(db, "INSERT INTO products (name, price, in_stock) VALUES ('Banana', 0.75, true)")
+db_exec(db, "INSERT INTO products (name, price, in_stock) VALUES ('Mango', 3.0, false)")
+
+// Query all
+print ""
+print "--- Products ---"
+let rows = db_query(db, "SELECT * FROM products ORDER BY name")
+for row in rows {
+    let stock = row["in_stock"]
+    print row["name"] + " - $" + str(row["price"])
+}
+
+// Query one
+let cheapest = db_query_one(db, "SELECT * FROM products ORDER BY price ASC LIMIT 1")
+if cheapest != nil {
+    print ""
+    print "Cheapest: " + cheapest["name"] + " @ $" + str(cheapest["price"])
+}
+
+// Aggregate
+let stats = db_query_one(db, "SELECT COUNT(*) as total, AVG(price) as avg_price FROM products")
+print "Total: " + str(stats["total"]) + ", Avg price: $" + str(stats["avg_price"])
+
+// Cleanup
+db_exec(db, "DROP TABLE IF EXISTS products")
+db_close(db)
+print "Done."

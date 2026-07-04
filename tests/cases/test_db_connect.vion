@@ -1,0 +1,22 @@
+// Test db_connect with SQLite DSN
+let db = db_connect("sqlite::memory:")
+print type(db)
+
+db_exec(db, "CREATE TABLE t (x INTEGER, name TEXT)")
+db_exec(db, "INSERT INTO t VALUES (42, 'hello')")
+db_exec(db, "INSERT INTO t VALUES (99, 'world')")
+
+let rows = db_query(db, "SELECT * FROM t ORDER BY x")
+print len(rows)
+print rows[0]["x"]
+print rows[0]["name"]
+print rows[1]["x"]
+
+let r = db_query_one(db, "SELECT * FROM t WHERE x = 42")
+print r["name"]
+
+let none = db_query_one(db, "SELECT * FROM t WHERE x = 999")
+print none
+
+db_close(db)
+print "done"

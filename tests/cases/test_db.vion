@@ -1,0 +1,43 @@
+// test_db.vion — integration tests for SQLite DB connectivity
+
+let db = db_open(":memory:")
+
+// Test: db type
+print type(db)
+
+// Test: create table
+let ok = db_exec(db, "CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT, num REAL)")
+print ok
+
+// Test: insert + changes + last_id
+db_exec(db, "INSERT INTO t VALUES (1, 'hello', 3.14)")
+print db_changes(db)
+print db_last_id(db)
+
+// Test: query returns array of maps
+db_exec(db, "INSERT INTO t VALUES (2, 'world', 2.71)")
+let rows = db_query(db, "SELECT * FROM t ORDER BY id")
+print len(rows)
+print rows[0]["val"]
+print rows[1]["num"]
+
+// Test: query_one
+let r = db_query_one(db, "SELECT * FROM t WHERE id = 1")
+print r["val"]
+print r["num"]
+
+// Test: nil on no result
+let none = db_query_one(db, "SELECT * FROM t WHERE id = 999")
+print none
+
+// Test: update changes count
+db_exec(db, "UPDATE t SET val = 'updated' WHERE id = 1")
+print db_changes(db)
+
+// Test: delete
+db_exec(db, "DELETE FROM t WHERE id = 2")
+print len(db_query(db, "SELECT * FROM t"))
+
+// Test: close
+db_close(db)
+print "done"

@@ -13,6 +13,7 @@
 #include <functional>
 
 #include "runtime/GC.h"
+#include "sqlite/sqlite3.h"
 
 class VionCallable;
 struct BytecodeFunction;
@@ -25,7 +26,8 @@ enum class ValueType {
     MAP,
     NIL,
     BYTECODE_FUNCTION,
-    NATIVE_FUNCTION
+    NATIVE_FUNCTION,
+    DB_CONNECTION
 };
 
 using NativeFn = std::function<struct Value(int argCount, struct Value* args)>;
@@ -47,6 +49,41 @@ struct VionMap : public GCObject {
     void breakCycles() override { entries.clear(); }
 };
 
+// SQLite database connection wrapper — supports multiple drivers
+enum class DBDriver { SQLITE, POSTGRES, MYSQL };
+
+struct VionDB : public GCObject {
+    DBDriver driver = DBDriver::SQLITE;
+    // SQLite
+    sqlite3* db = nullptr;
+    // PostgreSQL — store full DSN for psql CLI
+    std::string connstr;
+    // MySQL — individual connection parameters
+    std::string host = "127.0.0.1";
+    std::string port = "3306";
+    std::string user;
+    std::string password;
+    std::string database;
+    // State
+    bool closed = false;
+
+    ~VionDB() {
+        if (driver == DBDriver::SQLITE && db && !closed) {
+            sqlite3_close(db);
+            db = nullptr;
+        }
+    }
+    void trace(std::vector<std::shared_ptr<GCObject>>& children) const override {}
+    void breakCycles() override {
+        if (driver == DBDriver::SQLITE && db && !closed) {
+            sqlite3_close(db);
+            db = nullptr;
+        }
+        closed = true;
+    }
+};
+
+
 struct Value {
     ValueType type = ValueType::NIL;
     std::variant<
@@ -56,7 +93,8 @@ struct Value {
         std::shared_ptr<VionArray>,
         std::shared_ptr<VionMap>,
         std::shared_ptr<BytecodeFunction>,
-        std::shared_ptr<VMNativeFunction>
+        std::shared_ptr<VMNativeFunction>,
+        std::shared_ptr<VionDB>
     > data;
 
     // ── Factories ──────────────────────────────────────────────────────────
@@ -87,6 +125,9 @@ struct Value {
     }
     static Value map() {
         return map(std::make_shared<VionMap>());
+    }
+    static Value db(std::shared_ptr<VionDB> v) {
+        Value r; r.type = ValueType::DB_CONNECTION; r.data = std::move(v); return r;
     }
     static Value nil() { return Value{}; }
 
@@ -134,6 +175,7 @@ struct Value {
             case ValueType::NATIVE_FUNCTION: return true;
             case ValueType::ARRAY:    return true;
             case ValueType::MAP:      return true;
+            case ValueType::DB_CONNECTION: return true;
         }
         return false;
     }
@@ -149,6 +191,7 @@ struct Value {
             case ValueType::NATIVE_FUNCTION: return std::get<std::shared_ptr<VMNativeFunction>>(data) == std::get<std::shared_ptr<VMNativeFunction>>(other.data);
             case ValueType::ARRAY: return std::get<std::shared_ptr<VionArray>>(data) == std::get<std::shared_ptr<VionArray>>(other.data);
             case ValueType::MAP: return std::get<std::shared_ptr<VionMap>>(data) == std::get<std::shared_ptr<VionMap>>(other.data);
+            case ValueType::DB_CONNECTION: return std::get<std::shared_ptr<VionDB>>(data) == std::get<std::shared_ptr<VionDB>>(other.data);
         }
         return false;
     }
@@ -231,6 +274,11 @@ struct Value {
                 visited.erase(m.get());
                 return out.str();
             }
+            case ValueType::DB_CONNECTION: {
+                auto dbConn = std::get<std::shared_ptr<VionDB>>(data);
+                if (dbConn->closed || !dbConn->db) return "<db:closed>";
+                return "<db:" + std::string(sqlite3_db_filename(dbConn->db, "main")) + ">";
+            }
             case ValueType::NIL:
                 return "null"; // JSON uses null instead of nil
         }
@@ -247,6 +295,8 @@ struct Value {
             case ValueType::ARRAY:    return "array";
             case ValueType::MAP:      return "map";
             case ValueType::NIL:      return "nil";
+            case ValueType::DB_CONNECTION: return "db";
+            default: return "unknown";
         }
         return "unknown";
     }

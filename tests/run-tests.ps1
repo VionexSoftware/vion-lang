@@ -147,6 +147,18 @@ $Cases = @(
         Args = @("run", (Join-Path $ProjectRoot "tests\cases\top-level-return.vion"))
         ExitCode = 1
         Output = "Error: Runtime Error: return outside function."
+    },
+    @{
+        Name = "db-sqlite"
+        Args = @("run", (Join-Path $ProjectRoot "tests\cases\test_db.vion"))
+        ExitCode = 0
+        Output = "db`ntrue`n1`n1`n2`nhello`n2.71`nhello`n3.14`nnull`n1`n1`ndone"
+    },
+    @{
+        Name = "db-connect-dsn"
+        Args = @("run", (Join-Path $ProjectRoot "tests\cases\test_db_connect.vion"))
+        ExitCode = 0
+        Output = "db`n2`n42`nhello`n99`nhello`nnull`ndone"
     }
 )
 
