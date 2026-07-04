@@ -179,11 +179,11 @@ void Interpreter::registerBuiltins() {
         }
     )));
 
-    // input(prompt) — read a line from stdin
+    // input(prompt?) — read a line from stdin; prompt is optional
     globals->define("input", Value::function(std::make_shared<NativeFunction>(
-        "input", 1,
+        "input", -1,
         [](Interpreter&, const std::vector<Value>& args) -> Value {
-            std::cout << args[0].toString();
+            if (!args.empty()) std::cout << args[0].toString();
             std::string line;
             if (!std::getline(std::cin, line)) return Value::nil();
             return Value::string(line);
@@ -330,12 +330,12 @@ void Interpreter::registerBuiltins() {
         }
     )));
     globals->define("contains", Value::function(std::make_shared<NativeFunction>("contains", 2,
-        [](Interpreter&, const std::vector<Value>& args) -> Value {
+        [this](Interpreter& interp, const std::vector<Value>& args) -> Value {
             if (args[0].type == ValueType::STRING)
                 return Value::boolean(args[0].asString().find(args[1].asString()) != std::string::npos);
             if (args[0].type == ValueType::ARRAY) {
-                const std::string& t = args[1].toString();
-                for (const auto& e : args[0].asArray()->elements) if (e.toString() == t) return Value::boolean(true);
+                for (const auto& e : args[0].asArray()->elements)
+                    if (interp.valuesEqual(e, args[1])) return Value::boolean(true);
                 return Value::boolean(false);
             }
             throw std::runtime_error("Runtime Error: contains() expects string or array.");
@@ -365,15 +365,15 @@ void Interpreter::registerBuiltins() {
         }
     )));
     globals->define("indexOf", Value::function(std::make_shared<NativeFunction>("indexOf", 2,
-        [](Interpreter&, const std::vector<Value>& args) -> Value {
+        [this](Interpreter& interp, const std::vector<Value>& args) -> Value {
             if (args[0].type == ValueType::STRING) {
                 auto p = args[0].asString().find(args[1].asString());
                 return p == std::string::npos ? Value::number(-1) : Value::number((double)p);
             }
             if (args[0].type == ValueType::ARRAY) {
-                const std::string& t = args[1].toString();
                 const auto& el = args[0].asArray()->elements;
-                for (std::size_t i = 0; i < el.size(); ++i) if (el[i].toString() == t) return Value::number((double)i);
+                for (std::size_t i = 0; i < el.size(); ++i)
+                    if (interp.valuesEqual(el[i], args[1])) return Value::number((double)i);
                 return Value::number(-1);
             }
             throw std::runtime_error("Runtime Error: indexOf() expects string or array.");
@@ -448,7 +448,33 @@ void Interpreter::registerBuiltins() {
         [](Interpreter&, const std::vector<Value>& args) -> Value {
             std::exit((int)args[0].asNumber());
         }
-    )));}
+    )));
+
+    // substr(str, start, len) — substring
+    globals->define("substr", Value::function(std::make_shared<NativeFunction>("substr", 3,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            const std::string& s = args[0].asString();
+            int start = static_cast<int>(args[1].asNumber());
+            int len   = static_cast<int>(args[2].asNumber());
+            if (start < 0) start = std::max(0, (int)s.size() + start);
+            if (start >= (int)s.size()) return Value::string("");
+            return Value::string(s.substr(static_cast<std::size_t>(start),
+                                          static_cast<std::size_t>(std::max(0, len))));
+        }
+    )));
+
+    // randInt(min, max) — random integer in [min, max]
+    globals->define("randInt", Value::function(std::make_shared<NativeFunction>("randInt", 2,
+        [](Interpreter&, const std::vector<Value>& args) -> Value {
+            static std::mt19937 rng(std::random_device{}());
+            int lo = static_cast<int>(args[0].asNumber());
+            int hi = static_cast<int>(args[1].asNumber());
+            if (lo > hi) throw std::runtime_error("Runtime Error: randInt() min > max.");
+            std::uniform_int_distribution<int> dist(lo, hi);
+            return Value::number(static_cast<double>(dist(rng)));
+        }
+    )));
+}
 
 // ── Core interpreter ──────────────────────────────────────────────────────────
 
@@ -563,10 +589,24 @@ void Interpreter::execute(const Stmt& statement) {
                     continue;
                 }
             }
+        } else if (iterableVal.type == ValueType::MAP) {
+            // Iterate over map keys
+            auto entries = iterableVal.asMap()->entries;
+            for (const auto& [key, val] : entries) {
+                auto loopEnv = std::make_shared<Environment>(environment);
+                loopEnv->define(forStmt->variable, Value::string(key));
+                try {
+                    executeBlock(*forStmt->body, loopEnv);
+                } catch (const BreakSignal&) {
+                    return;
+                } catch (const ContinueSignal&) {
+                    continue;
+                }
+            }
         } else {
             throw std::runtime_error(
                 "Runtime Error" + locationOf(forStmt->line) +
-                ": 'for in' expects an array or string, got " + iterableVal.typeName() + "."
+                ": 'for in' expects an array, string, or map, got " + iterableVal.typeName() + "."
             );
         }
         return;
@@ -792,7 +832,15 @@ Value Interpreter::evaluateCall(const CallExpr& expression) {
         throw std::runtime_error(argCountError(fn->arity(), arguments.size()));
     }
 
-    return fn->call(*this, arguments);
+    if (callDepth >= kMaxCallDepth) {
+        throw std::runtime_error(
+            "Runtime Error" + locationOf(expression.line) +
+            ": maximum call stack depth (" + std::to_string(kMaxCallDepth) + ") exceeded.");
+    }
+    ++callDepth;
+    Value result = fn->call(*this, arguments);
+    --callDepth;
+    return result;
 }
 
 Value Interpreter::evaluateIndex(const IndexExpr& expression) {
