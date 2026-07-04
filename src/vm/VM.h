@@ -43,6 +43,8 @@ public:
     void push(Value value);
     Value pop();
 
+    void defineNative(const std::string& name, NativeFn function);
+
 private:
     std::vector<CallFrame> frames;
     std::vector<Value> stack;

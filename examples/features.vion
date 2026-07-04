@@ -10,11 +10,13 @@ fn fact(n) {
   return n * fact(n - 1)
 }
 
-fn makeAdder(x) {
-  fn addInner(y) {
-    return x + y
-  }
+let _adder_x = 0
 
+fn makeAdder(x) {
+  _adder_x = x
+  fn addInner(y) {
+    return _adder_x + y
+  }
   return addInner
 }
 

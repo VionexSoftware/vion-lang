@@ -117,7 +117,10 @@ static void runProgram(const std::string& source, const std::string& dir = "") {
     auto function = compiler.compile(program);
     if (function) {
         VM vm;
-        vm.interpret(function);
+        InterpretResult result = vm.interpret(function);
+        if (result != InterpretResult::INTERPRET_OK) {
+            exit(1);
+        }
     } else {
         std::cerr << "Compile Error\n";
     }

@@ -15,6 +15,12 @@ enum class FunctionType {
     TYPE_FUNCTION
 };
 
+struct LoopInfo {
+    int startOffset;
+    int scopeDepth;
+    std::vector<int> breakJumps;
+};
+
 class Compiler {
 public:
     Compiler(Compiler* enclosing, FunctionType type);
@@ -30,6 +36,7 @@ private:
 
     std::vector<Local> locals;
     int scopeDepth;
+    std::vector<LoopInfo> loops;
 
     Chunk* currentChunk();
 

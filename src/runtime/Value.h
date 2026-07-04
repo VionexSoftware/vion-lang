@@ -10,6 +10,7 @@
 #include <variant>
 #include <vector>
 #include <unordered_set>
+#include <functional>
 
 #include "runtime/GC.h"
 
@@ -24,8 +25,14 @@ enum class ValueType {
     ARRAY,
     MAP,
     NIL,
-    BYTECODE_FUNCTION
+    BYTECODE_FUNCTION,
+    NATIVE_FUNCTION
 };
+
+using NativeFn = std::function<struct Value(int argCount, struct Value* args)>;
+
+// Forward declaration for VMNativeFunction
+struct VMNativeFunction;
 
 // Forward declaration for shared array storage
 struct VionArray : public GCObject {
@@ -50,7 +57,8 @@ struct Value {
         std::shared_ptr<VionCallable>,
         std::shared_ptr<VionArray>,
         std::shared_ptr<VionMap>,
-        std::shared_ptr<BytecodeFunction>
+        std::shared_ptr<BytecodeFunction>,
+        std::shared_ptr<VMNativeFunction>
     > data = false;
 
     // ── Factories ──────────────────────────────────────────────────────────
@@ -63,6 +71,9 @@ struct Value {
     }
     static Value bytecodeFunction(std::shared_ptr<BytecodeFunction> v) {
         Value r; r.type = ValueType::BYTECODE_FUNCTION; r.data = std::move(v); return r;
+    }
+    static Value nativeFunction(std::shared_ptr<VMNativeFunction> v) {
+        Value r; r.type = ValueType::NATIVE_FUNCTION; r.data = std::move(v); return r;
     }
     static Value boolean(bool v) {
         Value r; r.type = ValueType::BOOLEAN; r.data = v; return r;
@@ -132,6 +143,7 @@ struct Value {
             case ValueType::STRING:   return !std::get<std::string>(data).empty();
             case ValueType::FUNCTION: return true;
             case ValueType::BYTECODE_FUNCTION: return true;
+            case ValueType::NATIVE_FUNCTION: return true;
             case ValueType::ARRAY:    return true;
             case ValueType::MAP:      return true;
         }
@@ -147,6 +159,7 @@ struct Value {
             case ValueType::STRING: return std::get<std::string>(data) == std::get<std::string>(other.data);
             case ValueType::FUNCTION: return std::get<std::shared_ptr<VionCallable>>(data) == std::get<std::shared_ptr<VionCallable>>(other.data);
             case ValueType::BYTECODE_FUNCTION: return std::get<std::shared_ptr<BytecodeFunction>>(data) == std::get<std::shared_ptr<BytecodeFunction>>(other.data);
+            case ValueType::NATIVE_FUNCTION: return std::get<std::shared_ptr<VMNativeFunction>>(data) == std::get<std::shared_ptr<VMNativeFunction>>(other.data);
             case ValueType::ARRAY: return std::get<std::shared_ptr<VionArray>>(data) == std::get<std::shared_ptr<VionArray>>(other.data);
             case ValueType::MAP: return std::get<std::shared_ptr<VionMap>>(data) == std::get<std::shared_ptr<VionMap>>(other.data);
         }
@@ -183,6 +196,8 @@ struct Value {
                 return "<function>";
             case ValueType::BYTECODE_FUNCTION:
                 return "<fn>";
+            case ValueType::NATIVE_FUNCTION:
+                return "<native fn>";
             case ValueType::ARRAY: {
                 const auto& arr = std::get<std::shared_ptr<VionArray>>(data);
                 if (visited.count(arr.get())) return "[Circular]";
@@ -233,4 +248,11 @@ struct Value {
         }
         return "unknown";
     }
+};
+
+struct VMNativeFunction : public GCObject {
+    NativeFn function;
+    std::string name;
+    void trace(std::vector<std::shared_ptr<GCObject>>& children) const override {}
+    void breakCycles() override {}
 };
