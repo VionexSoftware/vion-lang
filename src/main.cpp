@@ -175,7 +175,7 @@ int main(int argc, char* argv[]) {
         }
 
         if (isOneOf(command, {"version", "--version", "-v"})) {
-            std::cout << "Vion v0.4.0\n";
+            std::cout << "Vion v1.0.0\n";
             return 0;
         }
 
@@ -189,7 +189,20 @@ int main(int argc, char* argv[]) {
             std::cout << "Checking for updates...\n";
             int ret = std::system(
                 "powershell -ExecutionPolicy Bypass -Command "
-                "\"irm https://raw.githubusercontent.com/AlexanderPhan04/vion-lang/main/scripts/install-online-windows.ps1 | iex\""
+                "\"try { "
+                "$current = [version]'1.0.0'; "
+                "$latestTag = (Invoke-RestMethod https://api.github.com/repos/AlexanderPhan04/vion-lang/releases/latest -ErrorAction Stop).tag_name; "
+                "$latest = [version]($latestTag -replace 'v', ''); "
+                "if ($latest -gt $current) { "
+                "  Write-Host 'New version found! Installing...'; "
+                "  irm https://raw.githubusercontent.com/AlexanderPhan04/vion-lang/main/scripts/install-online-windows.ps1 | iex "
+                "} else { "
+                "  Write-Host 'Vion is up to date!'; "
+                "} "
+                "} catch { "
+                "  Write-Host 'Failed to check for updates. Check your internet connection.' -ForegroundColor Red; "
+                "  exit 1; "
+                "}\""
             );
             if (ret != 0) {
                 std::cerr << "Update failed. Check your internet connection or visit:\n";

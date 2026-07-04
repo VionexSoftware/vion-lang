@@ -1,121 +1,142 @@
-# Vion Language
+<div align="center">
+  <img src="https://raw.githubusercontent.com/AlexanderPhan04/vion-lang/main/assets/vion-logo.png" alt="Vion Language Logo" width="200" />
+  <h1>Vion Programming Language</h1>
+  <p><strong>Modern. Simple. Fast.</strong></p>
 
-Vion is a small programming language project written in C++17. It is built as a learning project for language implementation concepts: lexer, parser, AST, interpreter, lexical scope, functions, closures, and CLI tooling.
+  <p>
+    <a href="https://vion.vionex.software">Website</a> •
+    <a href="https://vion.vionex.software/docs">Documentation</a> •
+    <a href="https://github.com/AlexanderPhan04/vion-lang/releases">Releases</a>
+  </p>
+</div>
 
-## Project Structure
+Vion is a powerful, dynamically typed scripting language built entirely from scratch in modern C++17. Originally started as a learning project for language implementation (Lexer, Parser, AST), Vion has evolved into a fully-fledged language running on a custom **Bytecode Virtual Machine**.
 
-```text
-.
-|-- src/
-|   |-- lexer/          # Token definitions and scanner
-|   |-- parser/         # AST and recursive descent parser
-|   |-- runtime/        # Runtime values and environments
-|   |-- interpreter/    # Tree-walk interpreter
-|   `-- main.cpp        # CLI entry point
-|-- examples/           # Example .vion programs
-|-- tests/              # CLI integration tests
-|-- scripts/            # Install and uninstall scripts
-|-- tools/              # Editor/tooling integrations
-|-- assets/             # Vion visual assets
-|-- CMakeLists.txt      # Build, install, test, and package config
-|-- INSTALL.md          # Install instructions
-|-- LANGUAGE_SPEC.md    # Current language syntax and semantics
-|-- ROADMAP.md          # Planned milestones
-|-- LICENSE
-|-- .gitattributes
-`-- .gitignore
-```
+## 🚀 Features (v1.0.0)
 
-## Current Version
+- **Bytecode Virtual Machine:** Vion compiles source code into custom bytecode and executes it on a fast, stack-based VM.
+- **Garbage Collection:** Tracing mark-and-sweep garbage collector for automatic memory management of arrays, maps, and closures.
+- **Exception Handling:** Stack-unwinding `try / catch` blocks to gracefully recover from runtime errors.
+- **Module System:** Organize your code with isolated file imports (`let math = import "math.vion"`).
+- **First-class Functions & Closures:** True lexical scoping. Pass functions as arguments or return them.
+- **Data Structures:** Native support for Arrays and Hash Maps with dot-notation method access.
+- **Native Standard Library:** Includes File I/O (`file_read`, `file_write`), blazing fast JSON parsing (`json_parse`, `json_stringify`), and string manipulation (`split`, `to_upper`, `to_lower`).
 
-Vion is currently at `v0.2.0`.
+---
 
-Supported features include:
+## ⚡ Quick Start
 
-- variables and reassignment
-- numbers, strings, booleans, and `nil`
-- arithmetic, comparison, equality, and logical operators
-- lexical block scope
-- `if / else`
-- `while`
-- functions, recursion, closures, and `return`
-- CLI commands for tokenizing, AST output, and running programs
-- direct file run with `vion main.vion`
-- short CLI flags such as `vion -v`, `vion -h`, `vion -e`, and `vion -c`
-
-## Quick Start
-
-```powershell
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build
-.\build\Debug\vion.exe .\examples\features.vion
-```
-
-## Install
-
-Online install without cloning:
-
+### Installation (Windows)
+Open PowerShell as Administrator and run:
 ```powershell
 irm https://raw.githubusercontent.com/AlexanderPhan04/vion-lang/main/scripts/install-online-windows.ps1 | iex
 ```
+This will download the latest `vion.exe`, add it to your PATH, and install the VS Code syntax highlighting extension.
 
-The online installer asks once for permission, then downloads the latest GitHub Release, installs the CLI, updates user PATH, installs VS Code support, creates `Documents\Vion\main.vion`, and opens the starter project when the `code` command is available. Users do not need to set environment variables manually.
-
-Local source install:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1
+### Hello World
+```javascript
+// main.vion
+print "Hello, World!"
+```
+Run it:
+```bash
+vion run main.vion
 ```
 
-Open a new terminal, then run:
+---
 
-```powershell
-vion -v
-vion main.vion
+## 📖 Language Tour
+
+### Variables & Data Types
+```javascript
+let name = "Vion"          // String
+let version = 1.0          // Number
+let isAwesome = true       // Boolean
+let empty = nil            // Nil
+
+// String Interpolation
+print "Welcome to {name} v{version}!"
 ```
 
-Uninstall:
+### Data Structures & JSON
+```javascript
+let config = {
+    "host": "localhost",
+    "port": 8080
+}
+config.environment = "production"
 
-```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\Vion\docs\uninstall-windows.ps1"
+let jsonStr = json_stringify(config)
+print jsonStr
 ```
 
-## Test
+### Functions & Closures
+```javascript
+fn makeAdder(x) {
+    fn add(y) {
+        return x + y
+    }
+    return add
+}
 
-```powershell
-cmake --build build --target check
-ctest --test-dir build -C Debug --output-on-failure
+let add5 = makeAdder(5)
+print add5(10) // 15
 ```
 
-## CLI Commands
-
-```powershell
-vion main.vion                  # Run a file
-vion run main.vion              # Run a file
-vion -r main.vion               # Run a file
-vion tokens main.vion           # Print tokens
-vion -t main.vion               # Print tokens
-vion ast main.vion              # Print AST
-vion -a main.vion               # Print AST
-vion check main.vion            # Parse-check a file
-vion -c main.vion               # Parse-check a file
-vion eval "print 1 + 2"         # Run inline source
-vion -e "print 1 + 2"           # Run inline source
-vion repl                       # Start REPL
-vion -i                         # Start REPL
-vion version                    # Show version
-vion -v                         # Show version
-vion help                       # Show help
-vion -h                         # Show help
+### Try / Catch
+```javascript
+try {
+    let result = 10 / 0
+    print result
+} catch err {
+    print "Error caught: ", err
+}
 ```
 
-## Documentation
+### Modules
+**math.vion**
+```javascript
+let PI = 3.14159
+fn add(a, b) { return a + b }
+```
 
-- [Install guide](INSTALL.md)
-- [Language specification](LANGUAGE_SPEC.md)
-- [Roadmap](ROADMAP.md)
-- [VS Code language support](tools/vscode-vion/README.md)
+**main.vion**
+```javascript
+let math = import "math.vion"
+print math.PI        // 3.14159
+print math.add(5, 3) // 8
+```
 
-## License
+---
 
-Vion is released under the [MIT License](LICENSE).
+## 🛠️ Building from Source
+
+Requirements:
+- C++17 compiler (GCC, Clang, or MSVC)
+- CMake 3.20+
+
+```bash
+git clone https://github.com/AlexanderPhan04/vion-lang.git
+cd vion-lang
+mkdir build
+cd build
+cmake ..
+cmake --build . --config Release
+```
+
+---
+
+## 📝 CLI Commands
+
+Vion ships with a helpful CLI for debugging and running code:
+
+- `vion run <file>`: Execute a Vion script.
+- `vion repl`: Start the interactive REPL.
+- `vion ast <file>`: Print the Abstract Syntax Tree of a file.
+- `vion tokens <file>`: Print the Lexer tokens.
+- `vion eval "print 1 + 1"`: Execute inline code.
+
+---
+
+## 📄 License
+MIT License. Created by Vionex Software.
