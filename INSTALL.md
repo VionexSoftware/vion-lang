@@ -1,4 +1,4 @@
-﻿# Install Vion
+# Install Vion
 
 This guide installs the Vion CLI so you can run Vion programs from any terminal:
 
@@ -13,7 +13,7 @@ vion main.vion
 After a GitHub Release is published with `vion-*-Windows.zip`, users can install Vion with one command:
 
 ```powershell
-irm https://raw.githubusercontent.com/VionexSoftware/vion-lang/main/scripts/install-online-windows.ps1 | iex
+irm https://raw.githubusercontent.com/AlexanderPhan04/vion-lang/main/scripts/install-online-windows.ps1 | iex
 ```
 
 The online installer:
@@ -41,7 +41,7 @@ Install without prompts:
 
 ```powershell
 $installer = "$env:TEMP\install-vion.ps1"
-irm https://raw.githubusercontent.com/VionexSoftware/vion-lang/main/scripts/install-online-windows.ps1 -OutFile $installer
+irm https://raw.githubusercontent.com/AlexanderPhan04/vion-lang/main/scripts/install-online-windows.ps1 -OutFile $installer
 powershell -ExecutionPolicy Bypass -File $installer -Yes
 ```
 
@@ -49,7 +49,7 @@ Install without opening VS Code:
 
 ```powershell
 $installer = "$env:TEMP\install-vion.ps1"
-irm https://raw.githubusercontent.com/VionexSoftware/vion-lang/main/scripts/install-online-windows.ps1 -OutFile $installer
+irm https://raw.githubusercontent.com/AlexanderPhan04/vion-lang/main/scripts/install-online-windows.ps1 -OutFile $installer
 powershell -ExecutionPolicy Bypass -File $installer -NoOpen
 ```
 
@@ -57,7 +57,7 @@ Install a specific release tag:
 
 ```powershell
 $installer = "$env:TEMP\install-vion.ps1"
-irm https://raw.githubusercontent.com/VionexSoftware/vion-lang/main/scripts/install-online-windows.ps1 -OutFile $installer
+irm https://raw.githubusercontent.com/AlexanderPhan04/vion-lang/main/scripts/install-online-windows.ps1 -OutFile $installer
 powershell -ExecutionPolicy Bypass -File $installer -Version v0.2.0
 ```
 

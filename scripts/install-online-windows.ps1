@@ -1,5 +1,5 @@
-﻿param(
-    [string]$Repo          = "VionexSoftware/vion-lang",
+param(
+    [string]$Repo          = "AlexanderPhan04/vion-lang",
     [string]$Version       = "latest",
     [string]$InstallDir    = "",
     [string]$StarterDir    = "",
@@ -14,9 +14,9 @@
 
 $ErrorActionPreference = "Stop"
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 #  Color helpers
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 
 function Write-Color {
     param([string]$Text, [ConsoleColor]$Color = "White", [switch]$NoNewline)
@@ -39,18 +39,18 @@ function Write-Step {
     Write-Color $Label -Color White
 }
 
-function Write-OK   { param([string]$Msg) Write-Color "   âœ”  $Msg" -Color Green }
-function Write-Info { param([string]$Msg) Write-Color "   â†’  $Msg" -Color DarkGray }
-function Write-Warn { param([string]$Msg) Write-Color "   âš   $Msg" -Color Yellow }
-function Write-Fail { param([string]$Msg) Write-Color "   âœ˜  $Msg" -Color Red }
+function Write-OK   { param([string]$Msg) Write-Color "   ✔  $Msg" -Color Green }
+function Write-Info { param([string]$Msg) Write-Color "   →  $Msg" -Color DarkGray }
+function Write-Warn { param([string]$Msg) Write-Color "   ⚠  $Msg" -Color Yellow }
+function Write-Fail { param([string]$Msg) Write-Color "   ✘  $Msg" -Color Red }
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 #  Spinner
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 
 $script:SpinnerJob   = $null
 $script:SpinnerLabel = ""
-$SpinFrames = @("â ‹","â ™","â ¹","â ¸","â ¼","â ´","â ¦","â §","â ‡","â ")
+$SpinFrames = @("⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏")
 
 function Start-Spinner {
     param([string]$Label)
@@ -58,7 +58,7 @@ function Start-Spinner {
     $script:SpinnerJob = [System.Threading.Tasks.Task]::Run([System.Action]{
         $i = 0
         while ($true) {
-            $frame = ("â ‹","â ™","â ¹","â ¸","â ¼","â ´","â ¦","â §","â ‡","â ")[$i % 10]
+            $frame = ("⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏")[$i % 10]
             [Console]::Write("`r   $frame  $using:SpinnerLabel ")
             Start-Sleep -Milliseconds 80
             $i++
@@ -107,16 +107,16 @@ function Stop-Spin {
     }
 }
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 #  Progress bar for download
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 
 function Show-ProgressBar {
     param([long]$Current, [long]$Total, [int]$Width = 36)
     if ($Total -le 0) { return }
     $pct   = [int](($Current / $Total) * 100)
     $filled= [int](($Current / $Total) * $Width)
-    $bar   = ("â–ˆ" * $filled) + ("â–‘" * ($Width - $filled))
+    $bar   = ("█" * $filled) + ("░" * ($Width - $filled))
     $kb    = [math]::Round($Current / 1024)
     $totalKb = [math]::Round($Total / 1024)
     [Console]::Write("`r   [$bar] $pct% ($kb/$totalKb KB) ")
@@ -151,38 +151,38 @@ function Invoke-WebRequestWithProgress {
     [Console]::Write("`r" + " " * 60 + "`r")
 }
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 #  Banner
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 
 function Show-Banner {
     Write-Host ""
-    Write-Color "  â–ˆâ–ˆâ•—   â–ˆâ–ˆâ•—â–ˆâ–ˆâ•— â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•— â–ˆâ–ˆâ–ˆâ•—  â–ˆâ–ˆâ•—" -Color Cyan
-    Write-Color "  â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•”â•â•â•â–ˆâ–ˆâ•—â–ˆâ–ˆâ–ˆâ–ˆâ•— â–ˆâ–ˆâ•‘" -Color Cyan
-    Write-Color "  â•šâ–ˆâ–ˆâ•— â–ˆâ–ˆâ•”â•â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•”â–ˆâ–ˆâ•—â–ˆâ–ˆâ•‘" -Color Cyan
-    Write-Color "   â•šâ–ˆâ–ˆâ–ˆâ–ˆâ•”â• â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•‘â•šâ–ˆâ–ˆâ–ˆâ–ˆâ•‘" -Color Cyan
-    Write-Color "    â•šâ–ˆâ–ˆâ•”â•  â–ˆâ–ˆâ•‘â•šâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•”â•â–ˆâ–ˆâ•‘ â•šâ–ˆâ–ˆâ–ˆâ•‘" -Color Cyan
-    Write-Color "     â•šâ•â•   â•šâ•â• â•šâ•â•â•â•â•â• â•šâ•â•  â•šâ•â•â•" -Color DarkCyan
+    Write-Color "  ██╗   ██╗██╗ ██████╗ ███╗  ██╗" -Color Cyan
+    Write-Color "  ██║   ██║██║██╔═══██╗████╗ ██║" -Color Cyan
+    Write-Color "  ╚██╗ ██╔╝██║██║   ██║██╔██╗██║" -Color Cyan
+    Write-Color "   ╚████╔╝ ██║██║   ██║██║╚████║" -Color Cyan
+    Write-Color "    ╚██╔╝  ██║╚██████╔╝██║ ╚███║" -Color Cyan
+    Write-Color "     ╚═╝   ╚═╝ ╚═════╝ ╚═╝  ╚══╝" -Color DarkCyan
     Write-Host ""
     Write-Color "  Vion Language Installer" -Color White
     Write-Dim   "  A modern scripting language built in C++17"
     Write-Host ""
-    Write-Color "  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€" -Color DarkGray
+    Write-Color "  ─────────────────────────────────────────" -Color DarkGray
     Write-Host ""
 }
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 #  Confirm prompt
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 
 function Confirm-Install {
     if ($Yes) { return }
 
     Write-Dim   "  This installer will:"
-    Write-Dim   "    â€¢ Install vion.exe to your user profile (no admin required)"
-    Write-Dim   "    â€¢ Add vion to your PATH"
-    Write-Dim   "    â€¢ Install the VS Code extension"
-    Write-Dim   "    â€¢ Create a starter project in Documents\Vion"
+    Write-Dim   "    • Install vion.exe to your user profile (no admin required)"
+    Write-Dim   "    • Add vion to your PATH"
+    Write-Dim   "    • Install the VS Code extension"
+    Write-Dim   "    • Create a starter project in Documents\Vion"
     Write-Host ""
     Write-Color "  Allow Vion to make these changes? " -Color White -NoNewline
     Write-Color "[Y/n] " -Color DarkCyan -NoNewline
@@ -197,9 +197,9 @@ function Confirm-Install {
     Write-Host ""
 }
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 #  Utility functions (unchanged logic, better messages)
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 
 function Add-UserPathEntry {
     param([string]$PathEntry)
@@ -275,7 +275,7 @@ function Install-VSCodeExtension {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ExtDir) | Out-Null
     if (Test-Path $ExtDir) { Remove-Item -LiteralPath $ExtDir -Recurse -Force }
     Copy-Item -LiteralPath $ExtSrc -Destination $ExtDir -Recurse -Force
-    Write-OK "Installed VS Code extension â†’ $ExtDir"
+    Write-OK "Installed VS Code extension → $ExtDir"
     return $ExtDir
 }
 
@@ -310,9 +310,9 @@ function Open-StarterProject {
     & code $Directory
 }
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 #  Defaults
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 
 if ([string]::IsNullOrWhiteSpace($InstallDir)) {
     $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\Vion"
@@ -330,9 +330,9 @@ $ZipPath      = Join-Path $TempRoot "vion.zip"
 $ExtractDir   = Join-Path $TempRoot "extract"
 $TotalSteps   = 6
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 #  MAIN
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 
 try {
     Show-Banner
@@ -341,7 +341,7 @@ try {
     New-Item -ItemType Directory -Force -Path $TempRoot   | Out-Null
     New-Item -ItemType Directory -Force -Path $ExtractDir | Out-Null
 
-    # â”€â”€ Step 1: Resolve download URL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Step 1: Resolve download URL ─────────────────────────────────────────
     Write-Step 1 $TotalSteps "Resolving release"
     if ([string]::IsNullOrWhiteSpace($ZipUrl)) {
         $ZipUrl = Get-ReleaseAssetUrl -Repository $Repo -ReleaseVersion $Version -Pattern $AssetPattern
@@ -349,7 +349,7 @@ try {
         Write-Info "Using provided URL"
     }
 
-    # â”€â”€ Step 2: Download â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Step 2: Download ─────────────────────────────────────────────────────
     Write-Step 2 $TotalSteps "Downloading Vion"
     if (Test-Path -LiteralPath $ZipUrl) {
         Write-Info "Using local package: $ZipUrl"
@@ -361,7 +361,7 @@ try {
         Write-OK "Download complete"
     }
 
-    # â”€â”€ Step 3: Extract & install binary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Step 3: Extract & install binary ─────────────────────────────────────
     Write-Step 3 $TotalSteps "Installing binary"
     Start-Spin "Extracting package..."
     Expand-Archive -LiteralPath $ZipPath -DestinationPath $ExtractDir -Force
@@ -393,10 +393,10 @@ try {
         $BatchPath = Join-Path $env:TEMP "vion_update.bat"
         [System.IO.File]::WriteAllText($BatchPath, $BatchContent, [System.Text.Encoding]::ASCII)
         Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$BatchPath`"" -WindowStyle Hidden
-        Write-Warn "Binary in use â€” will be replaced in 1 second after installer exits"
+        Write-Warn "Binary in use — will be replaced in 1 second after installer exits"
     } else {
         Move-Item -LiteralPath $TempExe -Destination $DestExe -Force
-        Write-OK "Installed vion.exe â†’ $DestExe"
+        Write-OK "Installed vion.exe → $DestExe"
     }
 
     foreach ($DocName in @("LICENSE","README.md","INSTALL.md","LANGUAGE_SPEC.md","ROADMAP.md","uninstall-windows.ps1")) {
@@ -407,7 +407,7 @@ try {
         Where-Object { $_.FullName -match "[/\\]examples[/\\]" }
     foreach ($f in $ExampleFiles) { Copy-Item -LiteralPath $f.FullName -Destination $ExamplesDir -Force }
 
-    # â”€â”€ Step 4: VS Code extension â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Step 4: VS Code extension ─────────────────────────────────────────────
     Write-Step 4 $TotalSteps "Installing VS Code extension"
     $VSCodeExtensionDir = ""
     if (!$NoEditor) {
@@ -418,7 +418,7 @@ try {
         Write-Info "Skipped (--NoEditor)"
     }
 
-    # â”€â”€ Step 5: Starter project + PATH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Step 5: Starter project + PATH ───────────────────────────────────────
     Write-Step 5 $TotalSteps "Setting up environment"
     $Starter = $null
     if (!$NoStarter) { $Starter = New-StarterProject -Directory $StarterDir }
@@ -442,23 +442,23 @@ try {
         StarterSha256            = if ($null -ne $Starter) { $Starter.Sha256 } else { "" }
     }
 
-    # â”€â”€ Step 6: Done â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Step 6: Done ─────────────────────────────────────────────────────────
     Write-Step 6 $TotalSteps "Verifying installation"
     $InstalledVersion = & (Join-Path $BinDir "vion.exe") version 2>&1
     Write-OK "Verified: $InstalledVersion"
 
-    # â”€â”€ Summary box â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Summary box ──────────────────────────────────────────────────────────
     Write-Host ""
-    Write-Color "  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€" -Color DarkGray
+    Write-Color "  ─────────────────────────────────────────" -Color DarkGray
     Write-Host ""
-    Write-Color "   âœ”  Vion installed successfully!" -Color Green
+    Write-Color "   ✔  Vion installed successfully!" -Color Green
     Write-Host ""
     Write-Dim   "   Location : $BinDir"
     if ($null -ne $Starter) {
         Write-Dim "   Starter  : $($Starter.File)"
     }
     Write-Host ""
-    Write-Color "  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€" -Color DarkGray
+    Write-Color "  ─────────────────────────────────────────" -Color DarkGray
     Write-Host ""
     Write-Color "  Get started:" -Color White
     Write-Host ""
@@ -469,8 +469,8 @@ try {
     }
     Write-Color "    " -NoNewline; Write-Color "vion" -Color Cyan -NoNewline; Write-Color " repl" -Color DarkGray
     Write-Host ""
-    Write-Color "  Docs  â†’  https://vion.vionex.software" -Color DarkGray
-    Write-Color "  Repo  â†’  https://github.com/VionexSoftware/vion-lang" -Color DarkGray
+    Write-Color "  Docs  →  https://vion.vionex.software" -Color DarkGray
+    Write-Color "  Repo  →  https://github.com/AlexanderPhan04/vion-lang" -Color DarkGray
     Write-Host ""
 
     # Removed auto-opening in VS Code to avoid interrupting user workflow
