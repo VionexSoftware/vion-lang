@@ -30,7 +30,7 @@ private:
     std::shared_ptr<Environment> globals;
     std::shared_ptr<Environment> environment;
     int callDepth = 0;
-    static constexpr int kMaxCallDepth = 1000;
+    static constexpr int kMaxCallDepth = 500;
 
     void execute(const Stmt& statement);
     Value evaluate(const Expr& expression);

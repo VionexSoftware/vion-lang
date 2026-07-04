@@ -1,3 +1,7 @@
+#ifdef _MSC_VER
+#  define _CRT_SECURE_NO_WARNINGS  // suppress getenv deprecation on MSVC
+#endif
+
 #include "interpreter/Interpreter.h"
 
 #include <algorithm>
@@ -967,9 +971,8 @@ Value Interpreter::evaluateCall(const CallExpr& expression) {
             ": maximum call stack depth (" + std::to_string(kMaxCallDepth) + ") exceeded.");
     }
     ++callDepth;
-    Value result = fn->call(*this, arguments);
-    --callDepth;
-    return result;
+    struct Guard { Interpreter& i; ~Guard() { --i.callDepth; } } guard{*this};
+    return fn->call(*this, arguments);
 }
 
 Value Interpreter::evaluateIndex(const IndexExpr& expression) {

@@ -17,6 +17,17 @@ add_executable(vion
 
 target_include_directories(vion PRIVATE src)
 
+# Increase stack size to 8 MB on Windows so recursive Vion programs don't hit
+# the OS limit before our callDepth guard fires.
+if(WIN32)
+    target_link_options(vion PRIVATE "/STACK:8388608")  # 8 MB
+endif()
+
+# Treat warnings as warnings (not errors) in release builds
+if(MSVC)
+    target_compile_options(vion PRIVATE /W3)
+endif()
+
 enable_testing()
 
 add_test(
