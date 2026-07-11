@@ -1,3 +1,0 @@
-let flags = 5
-flags &= ~4
-print flags

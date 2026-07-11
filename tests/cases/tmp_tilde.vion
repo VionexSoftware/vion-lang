@@ -1,8 +1,0 @@
-let flags = 0
-flags |= 1
-flags |= 4
-print flags
-let notFour = ~4
-print notFour
-flags = flags & notFour
-print flags

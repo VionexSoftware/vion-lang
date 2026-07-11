@@ -1,7 +1,0 @@
-fn test(x) {
-    return fn() {
-        return x
-    }
-}
-let f = test(99)
-print f()

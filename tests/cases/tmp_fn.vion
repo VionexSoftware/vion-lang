@@ -1,5 +1,0 @@
-fn test(x, y) {
-    print x
-    print y
-}
-test(10, 20)

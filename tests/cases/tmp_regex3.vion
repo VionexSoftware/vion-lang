@@ -1,6 +1,0 @@
-let m1 = regex_find("2024-07-04", "[0-9]+")
-print join(m1, "|")
-let m2 = regex_search("foo bar", "bar")
-print m2
-let m3 = regex_replace("hello world", "world", "Vion")
-print m3

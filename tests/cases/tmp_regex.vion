@@ -1,6 +1,0 @@
-let matches = regex_find("2024-07-04 and 2025-01-01", "\\d{4}-\\d{2}-\\d{2}")
-print len(matches)
-print join(matches, " | ")
-
-let m2 = regex_find("hello world", "\\w+")
-print join(m2, ", ")

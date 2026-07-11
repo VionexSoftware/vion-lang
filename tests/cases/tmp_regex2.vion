@@ -1,5 +1,0 @@
-let m1 = regex_find("2024-07-04", "[0-9]{4}-[0-9]{2}-[0-9]{2}")
-print join(m1, "|")
-
-let m2 = regex_match("hello123", "[a-z]+[0-9]+")
-print m2

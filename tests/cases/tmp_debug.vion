@@ -1,7 +1,0 @@
-class Point {
-    fn init(x, y) {
-        print type(self)
-        print x
-    }
-}
-let p = Point(3, 4)

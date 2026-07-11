@@ -1,5 +1,0 @@
-let m = regex_find("abc 123 def 456", "[0-9]+")
-print join(m, "|")
-let m2 = regex_find("2024-07-04", "[0-9]{4}-[0-9]{2}-[0-9]{2}")
-print len(m2)
-print join(m2, "|")

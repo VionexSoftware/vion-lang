@@ -1,8 +1,0 @@
-fn make_counter() {
-    const x = 10
-    return fn() {
-        x = x + 1
-        return x
-    }
-}
-make_counter()()
